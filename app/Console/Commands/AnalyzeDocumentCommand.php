@@ -30,7 +30,7 @@ class AnalyzeDocumentCommand extends Command
      *
      * @var string
      */
-    protected $description = '從指定儲存空間撈取 XML 文檔並進行分析';
+    protected $description = '從指定儲存空間撈取 XML 或 TXT 文檔並進行分析';
 
     /**
      * Create a new command instance.
@@ -58,67 +58,81 @@ class AnalyzeDocumentCommand extends Command
 
         $this->info("開始掃描來源: {$sourceName}, 儲存空間: {$storageType}");
 
-        // Scan for XML files
-        $xmlFiles = $this->storageService->scanXmlFiles($storageType, $sourceName, $basePath);
+        // Scan for document files (XML and TXT)
+        $documentFiles = $this->storageService->scanDocumentFiles($storageType, $sourceName, $basePath);
 
-        if (empty($xmlFiles)) {
-            $this->warn("未找到任何 XML 文檔");
+        if (empty($documentFiles)) {
+            $this->warn("未找到任何文檔檔案 (XML 或 TXT)");
             return Command::SUCCESS;
         }
 
-        $this->info("找到 " . count($xmlFiles) . " 個 XML 文檔");
+        $this->info("找到 " . count($documentFiles) . " 個文檔檔案");
 
-        // Process XML files
+        // Process document files
         $processedCount = 0;
         $skippedCount = 0;
         $errorCount = 0;
 
-        $progressBar = $this->output->createProgressBar(count($xmlFiles));
+        $progressBar = $this->output->createProgressBar(count($documentFiles));
         $progressBar->start();
 
-        foreach ($xmlFiles as $xmlFile) {
+        foreach ($documentFiles as $documentFile) {
             if ($processedCount >= $limit) {
                 break;
             }
 
             try {
-                // Read XML file content
-                $xmlContent = $this->storageService->readFile($storageType, $xmlFile['file_path']);
+                // Read document file content
+                $fileContent = $this->storageService->readFile($storageType, $documentFile['file_path']);
 
-                if (null === $xmlContent) {
-                    $this->warn("\n無法讀取 XML 檔案: {$xmlFile['file_path']}");
+                if (null === $fileContent) {
+                    $this->warn("\n無法讀取檔案: {$documentFile['file_path']}");
                     $errorCount++;
                     $progressBar->advance();
                     continue;
                 }
 
+                $fileExtension = strtolower($documentFile['extension'] ?? pathinfo($documentFile['file_path'], PATHINFO_EXTENSION));
+                $textContent = '';
+                $mp4FilePaths = ['broadcast' => '', 'proxy' => ''];
+
+                // Parse content based on file type
+                if ('xml' === $fileExtension) {
                 // Extract MP4 file paths from CNN XML (objPaths) before parsing
-                $mp4FilePaths = $this->extractMp4PathsFromXml($xmlContent, $xmlFile);
+                    $mp4FilePaths = $this->extractMp4PathsFromXml($fileContent, $documentFile);
 
                 // Parse XML to text content
-                $textContent = $this->parseXmlToText($xmlContent);
-
-                if ('' === trim($textContent)) {
-                    $this->warn("\nXML 檔案內容為空: {$xmlFile['file_path']}");
+                    $textContent = $this->parseXmlToText($fileContent);
+                } elseif ('txt' === $fileExtension) {
+                    // Parse TXT file content
+                    $textContent = $this->parseTxtToText($fileContent);
+                } else {
+                    $this->warn("\n不支援的檔案類型: {$fileExtension}");
                     $errorCount++;
                     $progressBar->advance();
                     continue;
                 }
 
-                // Determine nas_path (prefer MP4 from XML, fallback to XML path)
-                $nasPath = $xmlFile['relative_path'];
-                if (!empty($mp4FilePaths['broadcast'])) {
-                    $nasPath = $mp4FilePaths['broadcast'];
-                } elseif (!empty($mp4FilePaths['proxy'])) {
-                    $nasPath = $mp4FilePaths['proxy'];
+                if ('' === trim($textContent)) {
+                    $this->warn("\n檔案內容為空: {$documentFile['file_path']}");
+                    $errorCount++;
+                    $progressBar->advance();
+                    continue;
                 }
 
+                // Determine nas_path (prefer MP4 in same directory, then MP4 from XML, fallback to document path)
+                $nasPath = $this->determineNasPath(
+                    $storageType,
+                    $documentFile,
+                    $mp4FilePaths
+                );
+
                 // Check if video already exists
-                $existingVideo = $this->videoRepository->getBySourceId($xmlFile['source_name'], $xmlFile['source_id']);
+                $existingVideo = $this->videoRepository->getBySourceId($documentFile['source_name'], $documentFile['source_id']);
 
                 if (null !== $existingVideo) {
                     if (AnalysisStatus::COMPLETED === $existingVideo->analysis_status) {
-                        $this->line("\n跳過已完成分析的文檔: {$xmlFile['source_id']}");
+                        $this->line("\n跳過已完成分析的文檔: {$documentFile['source_id']}");
                         $skippedCount++;
                         $progressBar->advance();
                         continue;
@@ -128,10 +142,10 @@ class AnalyzeDocumentCommand extends Command
                 } else {
                     // Create new video record
                     $videoId = $this->videoRepository->findOrCreate([
-                        'source_name' => $xmlFile['source_name'],
-                        'source_id' => $xmlFile['source_id'],
+                        'source_name' => $documentFile['source_name'],
+                        'source_id' => $documentFile['source_id'],
                         'nas_path' => $nasPath,
-                        'fetched_at' => date('Y-m-d H:i:s', $xmlFile['last_modified']),
+                        'fetched_at' => date('Y-m-d H:i:s', $documentFile['last_modified']),
                     ]);
                 }
 
@@ -176,24 +190,13 @@ class AnalyzeDocumentCommand extends Command
                     $updateData['shotlist_content'] = $analysisResult['shotlist_content'];
                 }
 
-                // Update nas_path if MP4 file path found in XML
-                if (!empty($mp4FilePaths['broadcast'])) {
-                    // Prefer broadcast quality file
-                    $updateData['nas_path'] = $mp4FilePaths['broadcast'];
-                } elseif (!empty($mp4FilePaths['proxy'])) {
-                    // Fallback to proxy file
-                    $updateData['nas_path'] = $mp4FilePaths['proxy'];
-                }
+                // Update prompt version
+                $updateData['prompt_version'] = $analysisResult['_prompt_version'] ?? $promptVersion ?? 'v3';
 
+                // Update video metadata
                 if (!empty($updateData)) {
                     $this->videoRepository->update($videoId, $updateData);
                 }
-
-                // Update prompt version
-                $promptVersionToSave = $analysisResult['_prompt_version'] ?? $promptVersion ?? 'v3';
-                $this->videoRepository->update($videoId, [
-                    'prompt_version' => $promptVersionToSave,
-                ]);
 
                 // Update status to metadata_extracted
                 $this->videoRepository->updateAnalysisStatus(
@@ -202,13 +205,13 @@ class AnalyzeDocumentCommand extends Command
                     new \DateTime()
                 );
 
-                $this->line("\n✓ 完成分析: {$xmlFile['file_name']}");
+                $this->line("\n✓ 完成分析: {$documentFile['file_name']}");
                 $processedCount++;
             } catch (\Exception $e) {
                 $errorCount++;
                 Log::error('[AnalyzeDocumentCommand] 分析文檔失敗', [
-                    'source_id' => $xmlFile['source_id'],
-                    'file_path' => $xmlFile['file_path'],
+                    'source_id' => $documentFile['source_id'],
+                    'file_path' => $documentFile['file_path'],
                     'error' => $e->getMessage(),
                 ]);
 
@@ -221,7 +224,7 @@ class AnalyzeDocumentCommand extends Command
                     );
                 }
 
-                $this->error("\n✗ 分析失敗: {$xmlFile['file_name']} - {$e->getMessage()}");
+                $this->error("\n✗ 分析失敗: {$documentFile['file_name']} - {$e->getMessage()}");
             }
 
             $progressBar->advance();
@@ -354,7 +357,8 @@ class AnalyzeDocumentCommand extends Command
     }
 
     /**
-     * Extract MP4 file paths from CNN XML objPaths.
+     * Extract MP4 file names from CNN XML objPaths.
+     * Returns only file names, not full paths.
      *
      * @param string $xmlContent
      * @param array<string, mixed> $xmlFile
@@ -385,10 +389,10 @@ class AnalyzeDocumentCommand extends Command
                         if (str_ends_with(strtolower($fileName), '.mp4')) {
                             // Prefer NTSC or PAL broadcast quality
                             if (str_contains($techDesc, 'NTSC') || str_contains($techDesc, 'PAL')) {
-                                $mp4Paths['broadcast'] = $fileName;
+                                $mp4Paths['broadcast'] = basename($fileName);
                                 break;
                             } elseif ('' === $mp4Paths['broadcast']) {
-                                $mp4Paths['broadcast'] = $fileName;
+                                $mp4Paths['broadcast'] = basename($fileName);
                             }
                         }
                     }
@@ -403,32 +407,13 @@ class AnalyzeDocumentCommand extends Command
                         if (str_ends_with(strtolower($fileName), '.mp4')) {
                             // Prefer H264 proxy format
                             if (str_contains($techDesc, 'H264')) {
-                                $mp4Paths['proxy'] = $fileName;
+                                $mp4Paths['proxy'] = basename($fileName);
                                 break;
                             } elseif ('' === $mp4Paths['proxy']) {
-                                $mp4Paths['proxy'] = $fileName;
+                                $mp4Paths['proxy'] = basename($fileName);
                             }
                         }
                     }
-                }
-            }
-
-            // If found, construct relative path based on XML file location
-            if ('' !== $mp4Paths['broadcast'] || '' !== $mp4Paths['proxy']) {
-                // Extract directory from XML relative path (remove source_name prefix)
-                $xmlRelativePath = $xmlFile['relative_path'];
-                $xmlDir = dirname($xmlRelativePath);
-                
-                // If xmlDir is just the source_name, use it directly
-                if ($xmlDir === $xmlFile['source_name']) {
-                    $xmlDir = $xmlFile['source_name'];
-                }
-                
-                if ('' !== $mp4Paths['broadcast']) {
-                    $mp4Paths['broadcast'] = $xmlDir . '/' . basename($mp4Paths['broadcast']);
-                }
-                if ('' !== $mp4Paths['proxy']) {
-                    $mp4Paths['proxy'] = $xmlDir . '/' . basename($mp4Paths['proxy']);
                 }
             }
         } catch (\Exception $e) {
@@ -438,5 +423,77 @@ class AnalyzeDocumentCommand extends Command
         }
 
         return $mp4Paths;
+    }
+
+    /**
+     * Determine nas_path for video record.
+     * Priority: 1. MP4 in same directory, 2. MP4 from XML (if exists), 3. Document path.
+     *
+     * @param string $storageType
+     * @param array<string, mixed> $documentFile
+     * @param array<string, string> $mp4FilePaths
+     * @return string
+     */
+    private function determineNasPath(string $storageType, array $documentFile, array $mp4FilePaths): string
+    {
+        // Priority 1: Find MP4 file in the same directory (any MP4 file, no name matching required)
+        $mp4InSameDir = $this->storageService->findMp4InSameDirectory(
+            $storageType,
+            $documentFile['file_path'],
+            $documentFile['relative_path']
+        );
+        if (null !== $mp4InSameDir) {
+            return $mp4InSameDir;
+        }
+
+        // Priority 2: Try MP4 from XML (if file exists in same directory)
+        if (!empty($mp4FilePaths['broadcast']) || !empty($mp4FilePaths['proxy'])) {
+            $documentDir = dirname($documentFile['relative_path']);
+            $disk = $this->storageService->getDisk($storageType);
+            
+            // Try broadcast first
+            if (!empty($mp4FilePaths['broadcast'])) {
+                $xmlMp4Path = $documentDir . '/' . $mp4FilePaths['broadcast'];
+                $xmlMp4FilePath = dirname($documentFile['file_path']) . '/' . $mp4FilePaths['broadcast'];
+                if ($disk->exists($xmlMp4FilePath)) {
+                    return $xmlMp4Path;
+                }
+            }
+            
+            // Try proxy
+            if (!empty($mp4FilePaths['proxy'])) {
+                $xmlMp4Path = $documentDir . '/' . $mp4FilePaths['proxy'];
+                $xmlMp4FilePath = dirname($documentFile['file_path']) . '/' . $mp4FilePaths['proxy'];
+                if ($disk->exists($xmlMp4FilePath)) {
+                    return $xmlMp4Path;
+                }
+            }
+        }
+
+        // Priority 3: Use document path as fallback
+        return $documentFile['relative_path'];
+    }
+
+    /**
+     * Parse TXT file content to text.
+     *
+     * @param string $txtContent
+     * @return string
+     */
+    private function parseTxtToText(string $txtContent): string
+    {
+        try {
+            // Clean up whitespace but preserve line breaks
+            $text = preg_replace('/[ \t]+/', ' ', $txtContent);
+            $text = preg_replace('/\n\s*\n+/', "\n\n", $text);
+            $text = trim($text);
+
+            return $text;
+        } catch (\Exception $e) {
+            Log::warning('[AnalyzeDocumentCommand] TXT 解析失敗，使用原始內容', [
+                'error' => $e->getMessage(),
+            ]);
+            return $txtContent;
+        }
     }
 }

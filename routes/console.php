@@ -2,7 +2,6 @@
 
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
-use Illuminate\Console\Scheduling\Schedule;
 
 /*
 |--------------------------------------------------------------------------
@@ -15,8 +14,6 @@ use Illuminate\Console\Scheduling\Schedule;
 |
 */
 
-Schedule::command('fetch:cnn')->hourly()->onOneServer()->runInBackground();
-
-Schedule::command('analyze:document --source=CNN --storage=s3')->everyTenMinutes()->onOneServer()->runInBackground();
-
-Schedule::command('analyze:video --source=CNN --storage=s3')->everyFifteenMinutes()->onOneServer()->runInBackground();
+// Artisan::command('inspire', function () {
+//     $this->comment(Inspiring::quote());
+// })->purpose('Display an inspiring quote')->hourly();

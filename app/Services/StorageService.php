@@ -43,19 +43,45 @@ class StorageService
         $supportedExtensions = ['mp4', 'mov', 'avi', 'mkv', 'ts', 'flv', 'wmv', 'm4v'];
 
         try {
-            $sourcePath = $basePath ? rtrim($basePath, '/') . '/' . $sourceName : $sourceName;
+            // Normalize basePath: remove leading slash and storage/app prefix if present
+            $normalizedBasePath = $basePath;
+            if ($normalizedBasePath) {
+                // Remove leading slash
+                $normalizedBasePath = ltrim($normalizedBasePath, '/');
+                // Remove storage/app prefix if present
+                $normalizedBasePath = preg_replace('#^storage/app/#', '', $normalizedBasePath);
+                $normalizedBasePath = preg_replace('#^storage/app$#', '', $normalizedBasePath);
+            }
+
+            // Build source path
+            if ($normalizedBasePath) {
+                // If basePath is provided, check if it contains source subdirectory
+                $testPathWithSource = rtrim($normalizedBasePath, '/') . '/' . $sourceName;
+                if ($disk->exists($testPathWithSource)) {
+                    // Path structure: basePath/sourceName/
+                    $sourcePath = $testPathWithSource;
+                } else {
+                    // Path structure: basePath/ (scan all files in basePath)
+                    $sourcePath = rtrim($normalizedBasePath, '/');
+                }
+            } else {
+                // No basePath, use sourceName directly
+                $sourcePath = $sourceName;
+            }
 
             if (!$disk->exists($sourcePath)) {
                 Log::warning('[StorageService] 來源路徑不存在', [
                     'storage_type' => $storageType,
                     'source_name' => $sourceName,
-                    'path' => $sourcePath,
+                    'base_path' => $basePath,
+                    'normalized_base_path' => $normalizedBasePath,
+                    'source_path' => $sourcePath,
                 ]);
                 return [];
             }
 
             // For CNN, files might be in subdirectories or directly in source path
-            // Scan recursively for MP4 files
+            // Scan recursively for video files
             $allFiles = $disk->allFiles($sourcePath);
 
             foreach ($allFiles as $file) {
@@ -67,10 +93,27 @@ class StorageService
                     $relativePath = str_replace($sourcePath . '/', '', $file);
                     $pathParts = explode('/', $relativePath);
                     
-                    // Try to extract story ID from filename or directory
-                    // CNN files often have format like: MW-006TH_IL_ PRITZKER SIGNS EX_CNNA-ST1-200000000008cf55_174_0.mp4
+                    // Extract source name from path if available
+                    $detectedSourceName = $sourceName;
+                    if (count($pathParts) > 0) {
+                        // Try to detect source name from directory structure
+                        $firstDir = $pathParts[0];
+                        if (in_array(strtoupper($firstDir), ['CNN', 'AP', 'RT'], true)) {
+                            $detectedSourceName = strtoupper($firstDir);
+                        }
+                    }
+
+                    // Use directory name as source_id if file is in a subdirectory
+                    // Otherwise extract from filename
                     $fileName = basename($file, '.' . $extension);
+                    if (count($pathParts) > 1) {
+                        // File is in a subdirectory, use the directory name as source_id
+                        // e.g., CNN/WE-012TH/video.mp4 -> source_id = WE-012TH
+                        $sourceId = $pathParts[count($pathParts) - 2]; // Second to last part (directory name)
+                    } else {
+                        // File is directly in source path, extract from filename
                     $sourceId = $this->extractSourceIdFromFileName($fileName, $pathParts);
+                    }
 
                     // Prefer Broadcast Quality File over Proxy Format
                     $isProxy = $this->isProxyFile($fileName);
@@ -86,11 +129,20 @@ class StorageService
                         unset($videoFiles[$sourceId . '_proxy']);
                     }
 
+                    // Build relative_path: include basePath if provided, otherwise use detectedSourceName/relativePath
+                    if ($normalizedBasePath) {
+                        // Include basePath in relative_path to reflect actual file location
+                        $fullRelativePath = rtrim($normalizedBasePath, '/') . '/' . $relativePath;
+                    } else {
+                        // No basePath, use detectedSourceName/relativePath
+                        $fullRelativePath = $detectedSourceName . '/' . $relativePath;
+                    }
+
                     $videoFiles[$fileKey] = [
-                        'source_name' => $sourceName,
+                        'source_name' => $detectedSourceName,
                         'source_id' => $sourceId,
                         'file_path' => $file,
-                        'relative_path' => $sourceName . '/' . $relativePath,
+                        'relative_path' => $fullRelativePath,
                         'file_name' => basename($file),
                         'extension' => $extension,
                         'is_proxy' => $isProxy,
@@ -103,6 +155,7 @@ class StorageService
             Log::error('[StorageService] 掃描影片檔案失敗', [
                 'storage_type' => $storageType,
                 'source_name' => $sourceName,
+                'base_path' => $basePath,
                 'error' => $e->getMessage(),
             ]);
         }
@@ -216,6 +269,166 @@ class StorageService
     }
 
     /**
+     * Scan for document files (XML and TXT) in storage.
+     *
+     * @param string $storageType
+     * @param string $sourceName
+     * @param string $basePath
+     * @return array<int, array<string, mixed>>
+     */
+    public function scanDocumentFiles(string $storageType, string $sourceName, string $basePath = ''): array
+    {
+        $disk = $this->getDisk($storageType);
+        $documentFiles = [];
+
+        try {
+            // Normalize basePath: remove leading slash and storage/app prefix if present
+            $normalizedBasePath = $basePath;
+            if ($normalizedBasePath) {
+                // Remove leading slash
+                $normalizedBasePath = ltrim($normalizedBasePath, '/');
+                // Remove storage/app prefix if present
+                $normalizedBasePath = preg_replace('#^storage/app/#', '', $normalizedBasePath);
+                $normalizedBasePath = preg_replace('#^storage/app$#', '', $normalizedBasePath);
+            }
+
+            // Build source path
+            if ($normalizedBasePath) {
+                // If basePath is provided, check if it contains source subdirectory
+                $testPathWithSource = rtrim($normalizedBasePath, '/') . '/' . $sourceName;
+                if ($disk->exists($testPathWithSource)) {
+                    // Path structure: basePath/sourceName/
+                    $sourcePath = $testPathWithSource;
+                } else {
+                    // Path structure: basePath/ (scan all files in basePath)
+                    $sourcePath = rtrim($normalizedBasePath, '/');
+                }
+            } else {
+                // No basePath, use sourceName directly
+                $sourcePath = $sourceName;
+            }
+
+            if (!$disk->exists($sourcePath)) {
+                Log::warning('[StorageService] 來源路徑不存在', [
+                    'storage_type' => $storageType,
+                    'source_name' => $sourceName,
+                    'base_path' => $basePath,
+                    'normalized_base_path' => $normalizedBasePath,
+                    'source_path' => $sourcePath,
+                ]);
+                return [];
+            }
+
+            $files = $disk->allFiles($sourcePath);
+
+            foreach ($files as $file) {
+                $extension = strtolower(pathinfo($file, PATHINFO_EXTENSION));
+
+                if (in_array($extension, ['xml', 'txt'], true)) {
+                    $relativePath = str_replace($sourcePath . '/', '', $file);
+                    $pathParts = explode('/', $relativePath);
+
+                    // Extract source name from path if available
+                    $detectedSourceName = $sourceName;
+                    if (count($pathParts) > 1) {
+                        // Try to detect source name from directory structure
+                        $firstDir = $pathParts[0];
+                        if (in_array(strtoupper($firstDir), ['CNN', 'AP', 'RT'], true)) {
+                            $detectedSourceName = strtoupper($firstDir);
+                        }
+                    }
+
+                    // Use directory name as source_id if file is in a subdirectory
+                    // Otherwise use filename without extension
+                    if (count($pathParts) > 1) {
+                        // File is in a subdirectory, use the directory name as source_id
+                        // e.g., CNN/WE-012TH/file.xml -> source_id = WE-012TH
+                        $sourceId = $pathParts[count($pathParts) - 2]; // Second to last part (directory name)
+                    } else {
+                        // File is directly in source path, use filename without extension
+                        $sourceId = pathinfo($relativePath, PATHINFO_FILENAME);
+                    }
+
+                    // Build relative_path: include basePath if provided, otherwise use detectedSourceName/relativePath
+                    if ($normalizedBasePath) {
+                        // Include basePath in relative_path to reflect actual file location
+                        $fullRelativePath = rtrim($normalizedBasePath, '/') . '/' . $relativePath;
+                    } else {
+                        // No basePath, use detectedSourceName/relativePath
+                        $fullRelativePath = $detectedSourceName . '/' . $relativePath;
+                    }
+
+                    $documentFiles[] = [
+                        'source_name' => $detectedSourceName,
+                        'source_id' => $sourceId,
+                        'file_path' => $file,
+                        'relative_path' => $fullRelativePath,
+                        'file_name' => basename($file),
+                        'extension' => $extension,
+                        'size' => $disk->size($file),
+                        'last_modified' => $disk->lastModified($file),
+                    ];
+                }
+            }
+        } catch (\Exception $e) {
+            Log::error('[StorageService] 掃描文檔檔案失敗', [
+                'storage_type' => $storageType,
+                'source_name' => $sourceName,
+                'base_path' => $basePath,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        return $documentFiles;
+    }
+
+    /**
+     * Find MP4 file in the same directory as the given file.
+     *
+     * @param string $storageType
+     * @param string $filePath
+     * @param string $relativePath
+     * @return string|null
+     */
+    public function findMp4InSameDirectory(string $storageType, string $filePath, string $relativePath): ?string
+    {
+        try {
+            $disk = $this->getDisk($storageType);
+            
+            // Get directory path from file path
+            $fileDir = dirname($filePath);
+            
+            if (!$disk->exists($fileDir)) {
+                return null;
+            }
+            
+            // List all files in the same directory
+            $files = $disk->files($fileDir);
+            
+            foreach ($files as $file) {
+                $extension = strtolower(pathinfo($file, PATHINFO_EXTENSION));
+                if ('mp4' === $extension) {
+                    // Found MP4 file, build relative path
+                    // Get directory from relativePath
+                    $mp4Dir = dirname($relativePath);
+                    // Return relative path with MP4 filename
+                    return $mp4Dir . '/' . basename($file);
+                }
+            }
+            
+            return null;
+        } catch (\Exception $e) {
+            Log::warning('[StorageService] 在同資料夾中尋找 MP4 檔案失敗', [
+                'storage_type' => $storageType,
+                'file_path' => $filePath,
+                'relative_path' => $relativePath,
+                'error' => $e->getMessage(),
+            ]);
+            return null;
+        }
+    }
+
+    /**
      * Read file content from storage.
      *
      * @param string $storageType
@@ -318,67 +531,5 @@ class StorageService
         }
     }
 
-    /**
-     * Upload file to storage.
-     *
-     * @param string $storageType
-     * @param string $filePath
-     * @param string $content
-     * @return bool
-     */
-    public function uploadFile(string $storageType, string $filePath, string $content): bool
-    {
-        try {
-            $disk = $this->getDisk($storageType);
-            return $disk->put($filePath, $content);
-        } catch (\Exception $e) {
-            Log::error('[StorageService] 上傳檔案失敗', [
-                'storage_type' => $storageType,
-                'file_path' => $filePath,
-                'error' => $e->getMessage(),
-            ]);
-            return false;
-        }
-    }
-
-    /**
-     * Upload file from local path to storage.
-     *
-     * @param string $storageType
-     * @param string $destinationPath
-     * @param string $localFilePath
-     * @return bool
-     */
-    public function uploadFileFromPath(string $storageType, string $destinationPath, string $localFilePath): bool
-    {
-        try {
-            if (!file_exists($localFilePath)) {
-                Log::warning('[StorageService] 本地檔案不存在', [
-                    'local_path' => $localFilePath,
-                ]);
-                return false;
-            }
-
-            $disk = $this->getDisk($storageType);
-            $content = file_get_contents($localFilePath);
-
-            if (false === $content) {
-                Log::error('[StorageService] 讀取本地檔案失敗', [
-                    'local_path' => $localFilePath,
-                ]);
-                return false;
-            }
-
-            return $disk->put($destinationPath, $content);
-        } catch (\Exception $e) {
-            Log::error('[StorageService] 上傳檔案失敗', [
-                'storage_type' => $storageType,
-                'destination_path' => $destinationPath,
-                'local_path' => $localFilePath,
-                'error' => $e->getMessage(),
-            ]);
-            return false;
-        }
-    }
 }
 

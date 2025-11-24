@@ -177,15 +177,21 @@ class VideoRepository
     }
 
     /**
-     * Get videos by analysis status.
+     * Get videos that are not completed (analysis_status != COMPLETED).
      *
-     * @param AnalysisStatus $status
+     * @param string|null $sourceName Optional source name filter
      * @param int $limit
      * @return Collection<int, Video>
      */
-    public function getByAnalysisStatus(AnalysisStatus $status, int $limit = 100): Collection
+    public function getIncompleteVideos(?string $sourceName = null, int $limit = 100): Collection
     {
-        return Video::where('analysis_status', $status)
+        $query = Video::where('analysis_status', '!=', AnalysisStatus::COMPLETED);
+
+        if (null !== $sourceName && '' !== $sourceName) {
+            $query->where('source_name', strtoupper($sourceName));
+        }
+
+        return $query->orderBy('fetched_at', 'asc')
             ->limit($limit)
             ->get();
     }

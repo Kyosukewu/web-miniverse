@@ -158,17 +158,6 @@ class DashboardService
     }
 
     /**
-     * Transform a single video for display (Blade view).
-     *
-     * @param mixed $video
-     * @return array<string, mixed>
-     */
-    private function transformSingleVideo($video): array
-    {
-        return $this->transformSingleVideoForApi($video);
-    }
-
-    /**
      * Transform a single video for API/display.
      * This is the core transformation logic shared by both Blade and API.
      *

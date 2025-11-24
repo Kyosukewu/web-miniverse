@@ -274,6 +274,7 @@ class AnalyzeService
             'related_news' => $normalizeJsonField($analysisData['related_news'] ?? null),
             'topics' => $normalizeJsonField($analysisData['topics'] ?? null),
             'keywords' => $normalizeJsonField($analysisData['keywords'] ?? null),
+            'error_message' => null, // Clear error message on successful analysis
         ];
 
         $saved = $this->analysisResultRepository->save($data);

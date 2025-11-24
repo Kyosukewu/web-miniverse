@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Repositories;
 
 use App\Models\AnalysisResult;
-use Illuminate\Support\Facades\DB;
 
 class AnalysisResultRepository
 {
@@ -17,35 +16,30 @@ class AnalysisResultRepository
      */
     public function save(array $data): bool
     {
-        // Use Eloquent model to ensure proper JSON handling
-        $analysisResult = AnalysisResult::updateOrCreate(
-                ['video_id' => $data['video_id']],
-                $data
-            );
-
-        return null !== $analysisResult;
+        try {
+            // Find existing record or create new instance
+            $analysisResult = AnalysisResult::find($data['video_id']);
+            
+            if (null === $analysisResult) {
+                // Create new instance
+                $analysisResult = new AnalysisResult();
+                $analysisResult->video_id = $data['video_id'];
+            }
+            
+            // Fill all attributes (Eloquent will handle JSON casting automatically)
+            $analysisResult->fill($data);
+            
+            // Save the model (this ensures $casts are properly applied)
+            return $analysisResult->save();
+        } catch (\Exception $e) {
+            \Log::error('[AnalysisResultRepository] 儲存分析結果失敗', [
+                'video_id' => $data['video_id'] ?? null,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+            return false;
+        }
     }
 
-    /**
-     * Get analysis result by video ID.
-     *
-     * @param int $videoId
-     * @return AnalysisResult|null
-     */
-    public function getByVideoId(int $videoId): ?AnalysisResult
-    {
-        return AnalysisResult::find($videoId);
-    }
-
-    /**
-     * Delete analysis result by video ID.
-     *
-     * @param int $videoId
-     * @return bool
-     */
-    public function deleteByVideoId(int $videoId): bool
-    {
-        return AnalysisResult::where('video_id', $videoId)->delete() > 0;
-    }
 }
 
