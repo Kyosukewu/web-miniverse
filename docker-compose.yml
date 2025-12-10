@@ -28,12 +28,8 @@ services:
       - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-us-east-1}
       - AWS_BUCKET=${AWS_BUCKET}
       # CNN 配置
-      - CNN_STORAGE_TYPE=${CNN_STORAGE_TYPE:-gcs}
-      - CNN_GCS_BUCKET=${CNN_GCS_BUCKET}
+      - CNN_SOURCE_PATH=${CNN_SOURCE_PATH:-/mnt/PushDownloads}
       - CNN_GCS_PATH=${CNN_GCS_PATH:-cnn/}
-      # CNN S3 配置（備用）
-      - CNN_S3_BUCKET=${CNN_S3_BUCKET:-}
-      - CNN_S3_PATH=${CNN_S3_PATH:-cnn/}
       # GCS 配置
       - GOOGLE_CLOUD_PROJECT_ID=${GOOGLE_CLOUD_PROJECT_ID}
       - GOOGLE_CLOUD_KEY_FILE=${GOOGLE_CLOUD_KEY_FILE:-/var/www/html/web-miniverse/storage/app/gcs-key.json}

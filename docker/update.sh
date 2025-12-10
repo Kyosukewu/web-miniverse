@@ -14,7 +14,7 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-PROJECT_DIR="/var/www/web-miniverse"
+PROJECT_DIR="/var/www/html/web-miniverse"
 
 # 檢查專案目錄是否存在
 if [ ! -d "$PROJECT_DIR" ]; then
@@ -99,7 +99,7 @@ fi
 echo -e "\n${GREEN}🔨 檢查是否需要重新構建容器...${NC}"
 if git diff HEAD@{1} HEAD --name-only | grep -qE "(Dockerfile|docker-compose.yml|docker/)" || [ "$1" == "--rebuild" ]; then
     echo -e "${YELLOW}偵測到 Docker 相關變更，重新構建容器...${NC}"
-    docker-compose build --no-cache
+    docker compose build --no-cache
     echo -e "${GREEN}✓ 構建完成${NC}"
 else
     echo -e "${GREEN}✓ 無 Docker 相關變更，跳過構建${NC}"
@@ -107,8 +107,8 @@ fi
 
 # 5. 重啟容器
 echo -e "\n${GREEN}🔄 重啟容器...${NC}"
-docker-compose down
-docker-compose up -d
+docker compose down
+docker compose up -d
 echo -e "${GREEN}✓ 容器重啟完成${NC}"
 
 # 6. 等待容器啟動
@@ -117,24 +117,23 @@ sleep 10
 
 # 7. 執行 Laravel 維護任務
 echo -e "\n${GREEN}⚙️  執行 Laravel 維護任務...${NC}"
-docker-compose exec -T app composer install --no-interaction --optimize-autoloader --no-dev || true
-docker-compose exec -T app php artisan migrate --force || true
-docker-compose exec -T app php artisan config:cache || true
-docker-compose exec -T app php artisan route:cache || true
-docker-compose exec -T app php artisan view:cache || true
+docker compose exec -T app composer install --no-interaction --optimize-autoloader --no-dev || true
+docker compose exec -T app php artisan migrate --force || true
+docker compose exec -T app php artisan config:clear || true
+docker compose exec -T app php artisan cache:clear || true
 echo -e "${GREEN}✓ 維護任務完成${NC}"
 
 # 8. 檢查容器狀態
 echo -e "\n${GREEN}📊 檢查容器狀態...${NC}"
-docker-compose ps
+docker compose ps
 
 # 9. 檢查排程任務
 echo -e "\n${GREEN}📅 檢查排程任務狀態...${NC}"
-docker-compose exec -T app supervisorctl status || true
+docker compose exec -T app ps aux | grep -E "(schedule|supervisord)" | grep -v grep || echo "排程任務檢查"
 
 echo -e "\n${GREEN}✅ 更新完成！${NC}"
 echo -e "\n${YELLOW}📝 後續檢查：${NC}"
-echo -e "1. 查看日誌: docker-compose logs -f"
+echo -e "1. 查看日誌: docker compose logs -f"
 echo -e "2. 檢查應用: http://$(curl -s ifconfig.me)"
 echo -e "3. 如有問題可還原備份: ${BACKUP_FILE}"
 

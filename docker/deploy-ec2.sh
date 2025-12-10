@@ -63,11 +63,10 @@ fi
 
 # 2. 檢查 Docker Compose 是否安裝
 echo -e "\n${GREEN}📦 檢查 Docker Compose 安裝...${NC}"
-if ! command -v docker-compose &> /dev/null; then
+if ! docker compose version &> /dev/null; then
     echo -e "${YELLOW}Docker Compose 未安裝，開始安裝...${NC}"
-    curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-    chmod +x /usr/local/bin/docker-compose
-    echo -e "${GREEN}✓ Docker Compose 安裝完成${NC}"
+    # Docker Compose V2 已整合到 Docker CLI，只需確保 Docker 已安裝
+    echo -e "${GREEN}✓ Docker Compose V2 已整合到 Docker CLI${NC}"
 else
     echo -e "${GREEN}✓ Docker Compose 已安裝${NC}"
 fi
@@ -87,7 +86,7 @@ else
 fi
 
 # 4. 設定專案目錄
-PROJECT_DIR="/var/www/web-miniverse"
+PROJECT_DIR="/var/www/html/web-miniverse"
 echo -e "\n${GREEN}📁 設定專案目錄: ${PROJECT_DIR}${NC}"
 
 if [ ! -d "$PROJECT_DIR" ]; then
@@ -163,12 +162,14 @@ if [ "$ENV_CREATED" = true ]; then
     
     AWS_SECRET=$(get_env_value "AWS_SECRET_ACCESS_KEY")
     if [ -z "$AWS_SECRET" ]; then
-        MISSING_VARS+=("AWS_SECRET_ACCESS_KEY")
+        WARNING_VARS+=("AWS_SECRET_ACCESS_KEY (S3 功能需要)")
     fi
     
-    CNN_BUCKET=$(get_env_value "CNN_S3_BUCKET")
-    if [ -z "$CNN_BUCKET" ]; then
-        MISSING_VARS+=("CNN_S3_BUCKET")
+    # 檢查 GCS 配置（如果使用 GCS）
+    GCS_PROJECT=$(get_env_value "GOOGLE_CLOUD_PROJECT_ID")
+    GCS_BUCKET=$(get_env_value "GOOGLE_CLOUD_STORAGE_BUCKET")
+    if [ -z "$GCS_PROJECT" ] || [ -z "$GCS_BUCKET" ]; then
+        WARNING_VARS+=("GOOGLE_CLOUD_PROJECT_ID 和 GOOGLE_CLOUD_STORAGE_BUCKET (GCS 功能需要)")
     fi
     
     # 如果有缺少的變數，提示用戶設定
@@ -224,7 +225,7 @@ echo -e "${GREEN}✓ 權限設定完成${NC}"
 
 # 8. 構建 Docker 映像檔
 echo -e "\n${GREEN}🔨 構建 Docker 映像檔...${NC}"
-docker-compose build --no-cache
+docker compose build --no-cache
 echo -e "${GREEN}✓ 構建完成${NC}"
 
 # 9. 最終檢查環境變數（在啟動容器前）
@@ -261,32 +262,42 @@ fi
 
 # 9. 啟動容器
 echo -e "\n${GREEN}🚀 啟動容器...${NC}"
-docker-compose up -d
+docker compose up -d
 echo -e "${GREEN}✓ 容器啟動完成${NC}"
 
 # 等待容器完全啟動
 echo -e "\n${GREEN}⏳ 等待容器啟動...${NC}"
-sleep 10
+sleep 15
 
 # 10. 執行 Laravel 初始化（如果需要）
 echo -e "\n${GREEN}⚙️  初始化 Laravel...${NC}"
-docker-compose exec -T app composer install --no-interaction --optimize-autoloader --no-dev || true
-docker-compose exec -T app php artisan key:generate --force || true
-docker-compose exec -T app php artisan migrate --force || true
-docker-compose exec -T app php artisan storage:link || true
+docker compose exec -T app composer install --no-interaction --optimize-autoloader --no-dev || true
+docker compose exec -T app php artisan key:generate --force || true
+docker compose exec -T app php artisan config:clear || true
+docker compose exec -T app php artisan cache:clear || true
+docker compose exec -T app php artisan migrate --force || true
+docker compose exec -T app php artisan storage:link || true
 echo -e "${GREEN}✓ Laravel 初始化完成${NC}"
 
-# 11. 檢查容器狀態
+# 11. 設置目錄權限
+echo -e "\n${GREEN}🔐 設置目錄權限...${NC}"
+docker compose exec -T app chown -R www-data:www-data /var/www/html/web-miniverse/storage || true
+docker compose exec -T app chown -R www-data:www-data /var/www/html/web-miniverse/bootstrap/cache || true
+docker compose exec -T app chmod -R 775 /var/www/html/web-miniverse/storage || true
+docker compose exec -T app chmod -R 775 /var/www/html/web-miniverse/bootstrap/cache || true
+echo -e "${GREEN}✓ 權限設置完成${NC}"
+
+# 12. 檢查容器狀態
 echo -e "\n${GREEN}📊 檢查容器狀態...${NC}"
-docker-compose ps
+docker compose ps
 
 echo -e "\n${GREEN}✅ 部署完成！${NC}"
 
 # 檢查容器是否正常運行
 echo -e "\n${GREEN}🔍 檢查容器狀態...${NC}"
-if ! docker-compose ps | grep -q "Up"; then
+if ! docker compose ps | grep -q "Up"; then
     echo -e "${RED}⚠️  警告: 部分容器可能未正常啟動${NC}"
-    echo -e "${YELLOW}請檢查日誌: docker-compose logs${NC}"
+    echo -e "${YELLOW}請檢查日誌: docker compose logs${NC}"
 fi
 
 echo -e "\n${YELLOW}📝 後續步驟：${NC}"
@@ -295,9 +306,9 @@ if [ "$ENV_CREATED" = true ]; then
     echo -e "1. 檢查 .env 檔案設定是否正確（特別是資料庫密碼和 API 金鑰）"
     echo -e "2. 如果環境變數不正確，請編輯 .env 後重啟容器："
     echo -e "   nano ${PROJECT_DIR}/.env"
-    echo -e "   docker-compose restart"
+    echo -e "   docker compose restart"
 fi
-echo -e "3. 查看日誌: docker-compose logs -f"
-echo -e "4. 檢查排程任務: docker-compose exec app supervisorctl status"
+echo -e "3. 查看日誌: docker compose logs -f"
+echo -e "4. 檢查排程任務: docker compose exec -T app ps aux | grep schedule"
 echo -e "5. 訪問應用: http://$(curl -s ifconfig.me)"
 echo -e "\n${YELLOW}💡 更新程式碼請使用: ./docker/update.sh${NC}"

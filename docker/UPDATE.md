@@ -36,7 +36,7 @@
 ssh -i your-key.pem ec2-user@your-ec2-ip
 
 # 2. 進入專案目錄
-cd /var/www/web-miniverse
+cd /var/www/html/web-miniverse
 
 # 3. 執行更新腳本
 GITHUB_TOKEN=your_token ./docker/update.sh
@@ -70,33 +70,32 @@ git reset --hard origin/main
 git clean -fd
 
 # 3. 重新構建容器（如有 Docker 相關變更）
-docker-compose build --no-cache
+docker compose build --no-cache
 
 # 4. 重啟容器
-docker-compose restart
+docker compose restart
 # 或完全重啟
-docker-compose down
-docker-compose up -d
+docker compose down
+docker compose up -d
 
 # 5. 執行 Laravel 維護任務
-docker-compose exec app composer install --no-dev
-docker-compose exec app php artisan migrate --force
-docker-compose exec app php artisan config:cache
-docker-compose exec app php artisan route:cache
-docker-compose exec app php artisan view:cache
+docker compose exec -T app composer install --no-interaction --optimize-autoloader --no-dev
+docker compose exec -T app php artisan migrate --force
+docker compose exec -T app php artisan config:clear
+docker compose exec -T app php artisan cache:clear
 ```
 
 ### 階段三：驗證部署
 
 ```bash
 # 檢查容器狀態
-docker-compose ps
+docker compose ps
 
 # 檢查應用日誌
-docker-compose logs -f app
+docker compose logs -f app
 
 # 檢查排程任務
-docker-compose exec app supervisorctl status
+docker compose exec -T app ps aux | grep schedule
 
 # 測試網站功能
 # 開啟瀏覽器訪問網站，測試主要功能
@@ -111,9 +110,9 @@ docker-compose exec app supervisorctl status
 - [ ] 備份資料庫（建議）
 
 更新後：
-- [ ] 檢查容器狀態：`docker-compose ps`
-- [ ] 檢查應用日誌：`docker-compose logs -f app`
-- [ ] 檢查排程任務：`docker-compose exec app supervisorctl status`
+- [ ] 檢查容器狀態：`docker compose ps`
+- [ ] 檢查應用日誌：`docker compose logs -f app`
+- [ ] 檢查排程任務：`docker compose exec -T app ps aux | grep schedule`
 - [ ] 測試網站功能
 - [ ] 檢查資料庫遷移是否成功
 
@@ -123,10 +122,10 @@ docker-compose exec app supervisorctl status
 
 ```bash
 # 查看詳細錯誤
-docker-compose logs app
+docker compose logs app
 
 # 檢查容器狀態
-docker-compose ps -a
+docker compose ps -a
 
 # 檢查資源使用
 docker stats
@@ -136,26 +135,26 @@ docker stats
 
 ```bash
 # 查看遷移狀態
-docker-compose exec app php artisan migrate:status
+docker compose exec -T app php artisan migrate:status
 
 # 手動執行遷移
-docker-compose exec app php artisan migrate --force
+docker compose exec -T app php artisan migrate --force
 
 # 如有問題，可以回滾
-docker-compose exec app php artisan migrate:rollback
+docker compose exec -T app php artisan migrate:rollback
 ```
 
 ### 排程任務沒有執行
 
 ```bash
-# 檢查 Supervisord 狀態
-docker-compose exec app supervisorctl status
+# 檢查排程進程
+docker compose exec -T app ps aux | grep schedule
 
 # 查看排程日誌
-docker-compose exec app tail -f /var/log/supervisor/scheduler.log
+docker compose exec -T app tail -f /var/log/supervisor/scheduler.log
 
 # 手動執行排程
-docker-compose exec app php artisan schedule:run
+docker compose exec -T app php artisan schedule:run
 ```
 
 ### 需要還原到之前的版本
@@ -165,29 +164,29 @@ docker-compose exec app php artisan schedule:run
 ls -lh /var/backups/web-miniverse/
 
 # 還原備份
-cd /var/www/web-miniverse
-docker-compose down
-tar -xzf /var/backups/web-miniverse/backup_YYYYMMDD_HHMMSS.tar.gz -C /var/www/
-docker-compose up -d
+cd /var/www/html/web-miniverse
+docker compose down
+tar -xzf /var/backups/web-miniverse/backup_YYYYMMDD_HHMMSS.tar.gz -C /var/www/html/
+docker compose up -d
 ```
 
 或使用 Git 回滾：
 
 ```bash
 # 停止當前容器
-docker-compose down
+docker compose down
 
 # 還原程式碼
-cd /var/www/web-miniverse
+cd /var/www/html/web-miniverse
 git reset --hard HEAD~1  # 或指定 commit
 git clean -fd
 
 # 重新啟動
-docker-compose up -d
+docker compose up -d
 
 # 執行維護任務
-docker-compose exec app php artisan config:cache
-docker-compose exec app php artisan route:cache
+docker compose exec -T app php artisan config:clear
+docker compose exec -T app php artisan cache:clear
 ```
 
 ## 🚀 最佳實踐
@@ -213,7 +212,7 @@ git checkout v1.0.0
 
 ```bash
 # 備份資料庫
-docker-compose exec db mysqldump -u root -p web_miniverse > backup_$(date +%Y%m%d).sql
+docker compose exec -T db mysqldump -u root -p${DB_PASSWORD:-root} miniverse > backup_$(date +%Y%m%d).sql
 
 # 備份整個專案（更新腳本會自動執行）
 ./docker/update.sh
@@ -223,7 +222,7 @@ docker-compose exec db mysqldump -u root -p web_miniverse > backup_$(date +%Y%m%
 
 ```bash
 # 在另一個終端視窗監控日誌
-docker-compose logs -f
+docker compose logs -f
 
 # 監控容器資源
 docker stats
