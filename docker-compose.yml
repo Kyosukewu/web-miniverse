@@ -72,8 +72,6 @@ services:
     environment:
       - MYSQL_DATABASE=${DB_DATABASE:-web_miniverse}
       - MYSQL_ROOT_PASSWORD=${DB_PASSWORD:-root}
-      - MYSQL_USER=${DB_USERNAME:-root}
-      - MYSQL_PASSWORD=${DB_PASSWORD:-root}
     volumes:
       - db_data:/var/lib/mysql
       - ./docker/mysql/my.cnf:/etc/mysql/conf.d/my.cnf
