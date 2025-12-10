@@ -5,6 +5,8 @@
 /public/storage
 /storage/*.key
 /storage/app/prompts/*.txt
+/config/gcs-key.json
+/storage/app/gcs-key.json
 /vendor
 .env
 .env.backup

@@ -134,10 +134,36 @@ class GeminiClient
             throw new \InvalidArgumentException('影片檔案不存在: ' . $videoPath);
         }
 
+        // Check file size before processing - Gemini API supports up to 300MB
+        $fileSize = filesize($videoPath);
+        $fileSizeMB = round($fileSize / 1024 / 1024, 2);
+        $maxFileSizeMB = 300;
+        
         Log::info('[Gemini Client] AnalyzeVideo - 開始分析影片', [
             'video_path' => $videoPath,
+            'file_size_mb' => $fileSizeMB,
             'prompt_preview' => Str::limit($prompt, 100),
         ]);
+
+        // Check if file exceeds Gemini API limit (300MB)
+        if ($fileSizeMB > $maxFileSizeMB) {
+            $errorMessage = "影片檔案過大 ({$fileSizeMB}MB)，超過 Gemini API 限制 ({$maxFileSizeMB}MB)";
+            Log::error('[Gemini Client] 影片檔案超過 API 限制', [
+                'file_size_mb' => $fileSizeMB,
+                'max_size_mb' => $maxFileSizeMB,
+                'video_path' => $videoPath,
+            ]);
+            throw new \InvalidArgumentException($errorMessage);
+        }
+
+        // Log warning if file is large but still within limit
+        if ($fileSizeMB > 200) {
+            Log::warning('[Gemini Client] 影片檔案較大，接近 API 限制', [
+                'file_size_mb' => $fileSizeMB,
+                'max_size_mb' => $maxFileSizeMB,
+                'video_path' => $videoPath,
+            ]);
+        }
 
         $videoData = file_get_contents($videoPath);
         if (false === $videoData) {
@@ -148,6 +174,9 @@ class GeminiClient
         Log::info('[Gemini Client] 使用影片 MIME 類型', ['mime_type' => $videoMimeType]);
 
         $videoBase64 = base64_encode($videoData);
+        
+        // Free original video data from memory immediately after encoding
+        unset($videoData);
 
         $url = sprintf('%s/models/%s:generateContent?key=%s', $this->baseUrl, $this->videoModel, $this->apiKey);
 
@@ -175,10 +204,18 @@ class GeminiClient
         }
 
         try {
-            Log::info('[Gemini Client] AnalyzeVideo - 正在向 Gemini API 發送請求');
+            // Estimate payload size (base64 data is ~33% larger than original, plus JSON overhead)
+            $estimatedPayloadSizeMB = round((strlen($videoBase64) * 1.1) / 1024 / 1024, 2);
+            Log::info('[Gemini Client] AnalyzeVideo - 正在向 Gemini API 發送請求', [
+                'estimated_payload_size_mb' => $estimatedPayloadSizeMB,
+            ]);
+            
             $response = $this->httpClient->post($url, [
                 'json' => $payload,
             ]);
+
+            // Free payload and base64 data from memory immediately after sending
+            unset($payload, $videoBase64);
 
             $responseData = json_decode($response->getBody()->getContents(), true);
 
@@ -280,6 +317,110 @@ class GeminiClient
         }
 
         return $potentialJson;
+    }
+
+    /**
+     * Analyze YouTube video directly from URL using Gemini API.
+     * This method uses file_uri to let Gemini fetch the video directly.
+     * Note: This consumes significantly more tokens than transcript-based analysis.
+     *
+     * @param string $youtubeUrl YouTube video URL
+     * @param string $prompt Analysis prompt
+     * @return array<string, mixed>
+     * @throws \Exception
+     */
+    public function analyzeYouTubeUrl(string $youtubeUrl, string $prompt): array
+    {
+        if ('' === trim($youtubeUrl)) {
+            throw new \InvalidArgumentException('YouTube URL 不得為空');
+        }
+
+        if ('' === trim($prompt)) {
+            throw new \InvalidArgumentException('分析 Prompt 不得為空');
+        }
+
+        Log::info('[Gemini Client] AnalyzeYouTubeUrl - 開始分析 YouTube 影片', [
+            'url' => $youtubeUrl,
+            'prompt_preview' => Str::limit($prompt, 100),
+        ]);
+
+        $url = sprintf('%s/models/%s:generateContent?key=%s', $this->baseUrl, $this->videoModel, $this->apiKey);
+
+        $payload = [
+            'contents' => [
+                [
+                    'parts' => [
+                        // Use file_uri to reference YouTube URL directly
+                        [
+                            'file_data' => [
+                                'mime_type' => 'video/mp4',
+                                'file_uri' => $youtubeUrl,
+                            ],
+                        ],
+                        // Add prompt
+                        [
+                            'text' => $prompt,
+                        ],
+                    ],
+                ],
+            ],
+        ];
+
+        // responseMimeType is only supported in v1beta
+        if ($this->apiVersion === 'v1beta') {
+            $payload['generationConfig'] = [
+                'responseMimeType' => 'application/json',
+            ];
+        }
+
+        try {
+            Log::info('[Gemini Client] AnalyzeYouTubeUrl - 正在向 Gemini API 發送請求');
+            $response = $this->httpClient->post($url, [
+                'json' => $payload,
+            ]);
+
+            $responseData = json_decode($response->getBody()->getContents(), true);
+
+            if (null === $responseData || !isset($responseData['candidates'][0]['content']['parts'][0]['text'])) {
+                throw new \Exception('Gemini API YouTube 影片分析回應無效或為空');
+            }
+
+            $rawJsonResponse = $responseData['candidates'][0]['content']['parts'][0]['text'];
+            Log::info('[Gemini Client] AnalyzeYouTubeUrl - 收到 API 的原始文字回應', [
+                'length' => strlen($rawJsonResponse),
+                'raw_text' => $rawJsonResponse,
+            ]);
+
+            $cleanedJsonString = $this->cleanJsonString($rawJsonResponse);
+            Log::info('[Gemini Client] AnalyzeYouTubeUrl - 清理後的 JSON 字串準備解析', [
+                'length' => strlen($cleanedJsonString),
+                'cleaned_text' => $cleanedJsonString,
+            ]);
+
+            if (!json_validate($cleanedJsonString)) {
+                Log::error('[Gemini Client] AnalyzeYouTubeUrl - 清理後的字串仍然不是有效的 JSON', [
+                    'cleaned_json' => $cleanedJsonString,
+                ]);
+                throw new \Exception('清理後的字串不是有效的 JSON (YouTube URL 分析)');
+            }
+
+            $analysis = json_decode($cleanedJsonString, true);
+            if (null === $analysis) {
+                Log::error('[Gemini Client] AnalyzeYouTubeUrl - 無法將 Gemini API 回應解析為 JSON', [
+                    'cleaned_json' => $cleanedJsonString,
+                ]);
+                throw new \Exception('無法將 Gemini API 回應解析為 JSON (YouTube URL 分析)');
+            }
+
+            Log::info('[Gemini Client] YouTube URL JSON 回應解析成功', ['url' => $youtubeUrl]);
+
+            return $analysis;
+        } catch (GuzzleException $e) {
+            Log::error('[Gemini Client] AnalyzeYouTubeUrl - API 請求失敗', [
+                'error' => $e->getMessage(),
+            ]);
+            throw new \Exception('Gemini API YouTube URL 分析失敗: ' . $e->getMessage(), 0, $e);
+        }
     }
 
     /**

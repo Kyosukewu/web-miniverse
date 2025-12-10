@@ -161,6 +161,25 @@ class AnalyzeService
             // Analyze video using Gemini API
             $analysis = $this->geminiClient->analyzeVideo($videoPath, $prompt);
 
+            // Handle array response (AI may return array with single object)
+            // Check if result is an array with numeric keys (indexed array)
+            if (is_array($analysis) && isset($analysis[0]) && is_array($analysis[0])) {
+                Log::warning('[AnalyzeService-VideoPipeline] AI 返回陣列格式，使用第一個元素', [
+                    'video_id' => $videoId,
+                ]);
+                // Use first element if result is an array
+                $analysis = $analysis[0];
+            }
+
+            Log::info('[AnalyzeService-VideoPipeline] 解析後的分析結果結構', [
+                'video_id' => $videoId,
+                'is_array' => is_array($analysis),
+                'has_short_summary' => isset($analysis['short_summary']),
+                'has_bulleted_summary' => isset($analysis['bulleted_summary']),
+                'has_visual_description' => isset($analysis['visual_description']),
+                'keys' => is_array($analysis) ? array_keys($analysis) : [],
+            ]);
+
             // Check if analysis result is empty or invalid
             if (empty($analysis) || (!isset($analysis['short_summary']) && !isset($analysis['bulleted_summary']) && !isset($analysis['visual_description']))) {
                 $errorMsg = 'Gemini API 回傳的分析結果為空或無效';

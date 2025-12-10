@@ -16,15 +16,17 @@ class FetchCnnCommand extends Command
      *
      * @var string
      */
-    protected $signature = 'fetch:cnn 
-                            {--sync-windows : 從 Windows Server 同步資源到 S3}';
+    protected $signature = 'fetch:cnn
+                            {--batch-size=50 : 每批處理的檔案數量}
+                            {--skip-sync : 跳過同步，僅掃描 GCS 中的資源}
+                            {--dry-run : 僅顯示會處理的檔案，不實際移動}';
 
     /**
      * The console command description.
      *
      * @var string
      */
-    protected $description = '從 CNN 來源取得資源（掃描 S3 或從 Windows Server 同步）';
+    protected $description = '從 CNN 來源取得資源（從本地目錄同步到 GCS 或從 GCS 掃描）';
 
     /**
      * Create a new command instance.
@@ -43,29 +45,42 @@ class FetchCnnCommand extends Command
      */
     public function handle(): int
     {
-        $this->info('開始掃描 CNN 資源...');
+        $batchSize = (int) $this->option('batch-size');
+        $skipSync = $this->option('skip-sync');
+        $dryRun = $this->option('dry-run');
 
-        // Sync from Windows Server if requested
-        if ($this->option('sync-windows')) {
-            $this->info('從 Windows Server 同步資源到 S3...');
-            $synced = $this->cnnFetchService->syncFromWindowsServer();
-
-            if ($synced) {
-                $this->info('✓ Windows Server 同步完成');
-            } else {
-                $this->warn('⚠ Windows Server 同步未執行或失敗');
-            }
+        if ($dryRun) {
+            $this->warn('⚠️  乾跑模式：不會實際移動檔案');
         }
 
-        // Scan for resources in storage
-        $resources = $this->cnnFetchService->fetchResourceList();
+        $this->info('開始處理 CNN 資源...');
+
+        try {
+            if ($skipSync) {
+                // 僅掃描 GCS，不進行同步
+                $this->info('跳過同步，僅掃描 GCS 中的資源...');
+                $resources = $this->cnnFetchService->fetchResourceListFromGcsOnly();
+            } else {
+                // 執行完整同步流程（掃描本地 → 移動到 GCS → 掃描 GCS）
+                $this->info("開始同步流程（批次大小: {$batchSize}）...");
+                $resources = $this->cnnFetchService->fetchResourceListWithProgress(
+                    $batchSize,
+                    $dryRun,
+                    function ($current, $total, $message) {
+                        if (null !== $total && $total > 0) {
+                            $percentage = round(($current / $total) * 100, 1);
+                            $this->line("進度: {$current}/{$total} ({$percentage}%) - {$message}");
+                        } else {
+                            $this->line("處理中: {$current} - {$message}");
+                        }
+                    }
+                );
+            }
 
         if (empty($resources)) {
             $this->warn('未找到任何 CNN 資源');
             return Command::SUCCESS;
         }
-
-        $this->info('找到 ' . count($resources) . ' 個 CNN 資源');
 
         // Display summary
         $xmlCount = 0;
@@ -79,6 +94,8 @@ class FetchCnnCommand extends Command
             }
         }
 
+            $this->newLine();
+            $this->info('✅ CNN 資源處理完成！');
         $this->table(
             ['類型', '數量'],
             [
@@ -88,9 +105,16 @@ class FetchCnnCommand extends Command
             ]
         );
 
-        $this->info('CNN 資源掃描完成！');
-
         return Command::SUCCESS;
+        } catch (\Exception $e) {
+            Log::error('[FetchCnnCommand] 處理失敗', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            $this->error('❌ 處理失敗: ' . $e->getMessage());
+            return Command::FAILURE;
+        }
     }
 }
 

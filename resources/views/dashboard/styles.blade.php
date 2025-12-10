@@ -264,8 +264,8 @@
     }
 
     .video-card.importance-n {
-        background-color: #f8d7da;
-        border-left: 5px solid #dc3545;
+        background-color: #e9ecef;
+        border-left: 5px solid #adb5bd;
     }
 
     .video-card.importance-unknown {
@@ -331,7 +331,7 @@
     }
 
     .card-header .rating-badge.rating-n {
-        background-color: #dc3545 !important;
+        background-color: #adb5bd !important;
         color: #fff !important;
     }
 
@@ -426,11 +426,28 @@
     .video-player-container {
         flex: 0 0 300px;
         min-width: 280px;
-        height: 169px;
         background-color: #111;
         border-radius: 6px;
         overflow: hidden;
         box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        position: relative;
+    }
+
+    /* Responsive YouTube embed container (16:9 aspect ratio) */
+    .video-player-container.has-youtube::before {
+        content: "";
+        display: block;
+        padding-bottom: 56.25%; /* 16:9 aspect ratio */
+    }
+
+    .video-player-container iframe {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        display: block;
+        border: none;
     }
 
     .video-player-container video {
@@ -477,8 +494,17 @@
 
     .importance-section ul {
         list-style-type: "★ ";
-        padding-left: 20px;
+        list-style-position: outside;
+        padding-left: 30px;
+        margin-left: 0;
         margin-bottom: 8px;
+        overflow-x: visible;
+    }
+
+    .importance-section ul li {
+        padding-left: 8px;
+        margin-left: 0;
+        margin-bottom: 5px;
     }
 
     .importance-section pre {
@@ -576,9 +602,21 @@
 
     .card-details ul {
         list-style-type: disc;
+        list-style-position: outside;
+        padding-left: 30px;
+        margin-left: 0;
+        margin-right: 0;
         max-height: 180px;
         overflow-y: auto;
+        overflow-x: visible;
         word-break: break-word;
+    }
+
+    .card-details ul li {
+        padding-left: 8px;
+        margin-left: 0;
+        margin-bottom: 8px;
+        padding-right: 0;
     }
 
     .no-data {
@@ -603,6 +641,7 @@
     .icon-id::before { content: "🆔"; }
     .icon-date::before { content: "📅"; }
     .icon-status::before { content: "📊"; }
+    .icon-version::before { content: "🔢"; }
     .icon-prompt::before { content: "💬"; }
     .icon-error::before { content: "❗ "; color: #c82333; }
     .icon-duration::before { content: "⏱️"; }
@@ -748,7 +787,7 @@
 
     .importance-section ul.copyable-field,
     .importance-section pre.copyable-field {
-        padding: 10px 25px 10px 10px;
+        padding: 10px 25px 10px 30px;
     }
 
     .status-value-error.copyable-field {
@@ -762,9 +801,12 @@
     }
 
     .card-details pre.copyable-field,
-    .card-details p.copyable-field,
-    .card-details ul.copyable-field {
+    .card-details p.copyable-field {
         padding: 10px 25px 10px 10px;
+    }
+
+    .card-details ul.copyable-field {
+        padding: 10px 25px 10px 30px;
     }
 </style>
 

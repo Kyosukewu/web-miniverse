@@ -174,6 +174,14 @@ class DashboardService
         $analysisData = $this->parseAnalysisResultData($analysisResult);
         $processedShotlistContent = $this->getProcessedShotlistContent($video->shotlist_content);
 
+        // Determine video URL: if nas_path is a full URL, use it directly; otherwise use /storage/app/ route
+        $videoUrl = $video->nas_path;
+        if (!empty($videoUrl) && !preg_match('/^https?:\/\//i', $videoUrl)) {
+            // Use relative URL path that will be served by route
+            // storage_path('app/') maps to /storage/app/ URL path
+            $videoUrl = '/storage/app/' . ltrim($videoUrl, '/');
+        }
+
         return [
             'source_name' => $video->source_name,
             'source_id' => $video->source_id,
@@ -185,7 +193,7 @@ class DashboardService
             'formatted_duration_seconds' => $duration['seconds'],
             'primary_subjects' => $primarySubjects,
             'flag_emoji' => DashboardHelper::getFlagForLocation($video->location),
-            'video_url' => '/media/' . $video->nas_path,
+            'video_url' => $videoUrl,
             'prompt_version' => $video->prompt_version,
             'restrictions' => $video->restrictions,
             'tran_restrictions' => $video->tran_restrictions,

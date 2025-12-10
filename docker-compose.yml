@@ -1,0 +1,123 @@
+version: '3.8'
+
+services:
+  # Laravel 應用容器
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: web-miniverse-app
+    restart: unless-stopped
+    working_dir: /var/www/html/web-miniverse
+    volumes:
+      - ./:/var/www/html/web-miniverse
+      - ./storage:/var/www/html/web-miniverse/storage
+      - ./bootstrap/cache:/var/www/html/web-miniverse/bootstrap/cache
+      - /mnt/PushDownloads:/mnt/PushDownloads:rw
+    environment:
+      - APP_ENV=${APP_ENV:-production}
+      - APP_DEBUG=${APP_DEBUG:-false}
+      - APP_URL=${APP_URL:-http://localhost}
+      - DB_CONNECTION=${DB_CONNECTION:-mysql}
+      - DB_HOST=db
+      - DB_PORT=${DB_PORT:-3306}
+      - DB_DATABASE=${DB_DATABASE:-web_miniverse}
+      - DB_USERNAME=${DB_USERNAME:-root}
+      - DB_PASSWORD=${DB_PASSWORD:-root}
+      # S3 配置
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-us-east-1}
+      - AWS_BUCKET=${AWS_BUCKET}
+      # CNN 配置
+      - CNN_STORAGE_TYPE=${CNN_STORAGE_TYPE:-gcs}
+      - CNN_GCS_BUCKET=${CNN_GCS_BUCKET}
+      - CNN_GCS_PATH=${CNN_GCS_PATH:-cnn/}
+      # CNN S3 配置（備用）
+      - CNN_S3_BUCKET=${CNN_S3_BUCKET}
+      - CNN_S3_PATH=${CNN_S3_PATH:-cnn/}
+      # GCS 配置
+      - GOOGLE_CLOUD_PROJECT_ID=${GOOGLE_CLOUD_PROJECT_ID}
+      - GOOGLE_CLOUD_KEY_FILE=${GOOGLE_CLOUD_KEY_FILE:-/var/www/html/web-miniverse/storage/app/gcs-key.json}
+      - GOOGLE_CLOUD_STORAGE_BUCKET=${GOOGLE_CLOUD_STORAGE_BUCKET}
+      - GOOGLE_CLOUD_STORAGE_PATH_PREFIX=${GOOGLE_CLOUD_STORAGE_PATH_PREFIX:-}
+      # Gemini API
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      # YouTube API（可選）
+      - YOUTUBE_API_KEY=${YOUTUBE_API_KEY:-}
+    depends_on:
+      - db
+    networks:
+      - web-miniverse-network
+
+  # Nginx Web 伺服器（可選，如果需要）
+  nginx:
+    image: nginx:alpine
+    container_name: web-miniverse-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./:/var/www/html/web-miniverse
+      - ./docker/nginx.conf:/etc/nginx/conf.d/default.conf
+    depends_on:
+      - app
+    networks:
+      - web-miniverse-network
+
+  # MySQL 資料庫
+  db:
+    image: mysql:8.0
+    container_name: web-miniverse-db
+    restart: unless-stopped
+    environment:
+      - MYSQL_DATABASE=${DB_DATABASE:-web_miniverse}
+      - MYSQL_ROOT_PASSWORD=${DB_PASSWORD:-root}
+      - MYSQL_USER=${DB_USERNAME:-root}
+      - MYSQL_PASSWORD=${DB_PASSWORD:-root}
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./docker/mysql/my.cnf:/etc/mysql/conf.d/my.cnf
+    ports:
+      - "3306:3306"
+    networks:
+      - web-miniverse-network
+
+  # Redis（如果需要用於快取或 Queue）
+  redis:
+    image: redis:7-alpine
+    container_name: web-miniverse-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    networks:
+      - web-miniverse-network
+
+  # phpMyAdmin（資料庫管理工具）
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    container_name: web-miniverse-phpmyadmin
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    environment:
+      PMA_HOST: db
+      PMA_PORT: 3306
+      PMA_USER: ${DB_USERNAME:-root}
+      PMA_PASSWORD: ${DB_PASSWORD:-root}
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-root}
+      UPLOAD_LIMIT: 300M
+    depends_on:
+      - db
+    networks:
+      - web-miniverse-network
+
+volumes:
+  db_data:
+    driver: local
+
+networks:
+  web-miniverse-network:
+    driver: bridge
+

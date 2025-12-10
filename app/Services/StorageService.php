@@ -20,6 +20,7 @@ class StorageService
         $diskName = match ($type) {
             'nas' => 'nas',
             's3' => 's3',
+            'gcs' => 'gcs',  // Google Cloud Storage
             'storage', 'local' => 'local',
             default => 'local',
         };
@@ -138,14 +139,18 @@ class StorageService
                         $fullRelativePath = $detectedSourceName . '/' . $relativePath;
                     }
 
+                    $fileName = basename($file);
+                    $fileVersion = $this->extractFileVersion($fileName);
+
                     $videoFiles[$fileKey] = [
                         'source_name' => $detectedSourceName,
                         'source_id' => $sourceId,
                         'file_path' => $file,
                         'relative_path' => $fullRelativePath,
-                        'file_name' => basename($file),
+                        'file_name' => $fileName,
                         'extension' => $extension,
                         'is_proxy' => $isProxy,
+                        'file_version' => $fileVersion,
                         'size' => $disk->size($file),
                         'last_modified' => $disk->lastModified($file),
                     ];
@@ -165,6 +170,7 @@ class StorageService
 
     /**
      * Extract source ID from CNN file name or path.
+     * Priority: Unique Identifier (CNNA-ST1-xxxxxxxxxxxxxxxx) > Directory Name > Filename Pattern
      *
      * @param string $fileName
      * @param array<string> $pathParts
@@ -172,8 +178,24 @@ class StorageService
      */
     private function extractSourceIdFromFileName(string $fileName, array $pathParts): string
     {
-        // CNN files often start with story ID like MW-006TH
-        // Try to extract from filename first
+        // First, try to extract unique identifier (CNNA-ST1-xxxxxxxxxxxxxxxx)
+        if (preg_match('/CNNA-ST1-(\d{16})/', $fileName, $matches)) {
+            return 'CNNA-ST1-' . $matches[1];
+        }
+
+        // If file is in a subdirectory, use directory name as source_id
+        // Directory name should be the unique identifier
+        if (!empty($pathParts) && count($pathParts) > 1) {
+            $dirName = $pathParts[count($pathParts) - 2]; // Second to last part (directory name)
+            // Check if directory name is a unique identifier
+            if (preg_match('/^CNNA-ST1-\d{16}$/', $dirName)) {
+                return $dirName;
+            }
+            // Fallback to directory name
+            return $dirName;
+        }
+
+        // Try to extract story ID pattern (e.g., MW-006TH)
         if (preg_match('/^([A-Z]+-\d+[A-Z]*)/', $fileName, $matches)) {
             return $matches[1];
         }
@@ -188,7 +210,7 @@ class StorageService
         }
 
         // Fallback to filename without extension
-        return $fileName;
+        return pathinfo($fileName, PATHINFO_FILENAME);
     }
 
     /**
@@ -213,6 +235,24 @@ class StorageService
     }
 
     /**
+     * Extract file version number from filename.
+     * CNN format: ..._CNNA-ST1-xxxxxxxxxxxxxxxx_174_0.mp4
+     * Version is the last number before extension (e.g., _0 -> 0, _1 -> 1, _2 -> 2)
+     *
+     * @param string $fileName
+     * @return int|null Returns version number (0, 1, 2, etc.) or null if not found
+     */
+    public function extractFileVersion(string $fileName): ?int
+    {
+        // Pattern: _數字.副檔名 (例如: _0.mp4, _1.xml)
+        if (preg_match('/_(\d+)\.\w+$/', $fileName, $matches)) {
+            return (int) $matches[1];
+        }
+
+        return null;
+    }
+
+    /**
      * Scan for XML document files in storage.
      *
      * @param string $storageType
@@ -226,17 +266,44 @@ class StorageService
         $xmlFiles = [];
 
         try {
-            $sourcePath = $basePath ? rtrim($basePath, '/') . '/' . $sourceName : $sourceName;
+            // Normalize basePath: remove leading slash and storage/app prefix if present
+            $normalizedBasePath = $basePath;
+            if ($normalizedBasePath) {
+                // Remove leading slash
+                $normalizedBasePath = ltrim($normalizedBasePath, '/');
+                // Remove storage/app prefix if present
+                $normalizedBasePath = preg_replace('#^storage/app/#', '', $normalizedBasePath);
+                $normalizedBasePath = preg_replace('#^storage/app$#', '', $normalizedBasePath);
+            }
+
+            // Build source path
+            if ($normalizedBasePath) {
+                // If basePath is provided, check if it contains source subdirectory
+                $testPathWithSource = rtrim($normalizedBasePath, '/') . '/' . $sourceName;
+                if ($disk->exists($testPathWithSource)) {
+                    // Path structure: basePath/sourceName/
+                    $sourcePath = $testPathWithSource;
+                } else {
+                    // Path structure: basePath/ (scan all files in basePath)
+                    $sourcePath = rtrim($normalizedBasePath, '/');
+                }
+            } else {
+                // No basePath, use sourceName directly
+                $sourcePath = $sourceName;
+            }
 
             if (!$disk->exists($sourcePath)) {
                 Log::warning('[StorageService] 來源路徑不存在', [
                     'storage_type' => $storageType,
                     'source_name' => $sourceName,
-                    'path' => $sourcePath,
+                    'base_path' => $basePath,
+                    'normalized_base_path' => $normalizedBasePath,
+                    'source_path' => $sourcePath,
                 ]);
                 return [];
             }
 
+            // Scan recursively for XML files
             $files = $disk->allFiles($sourcePath);
 
             foreach ($files as $file) {
@@ -244,14 +311,53 @@ class StorageService
 
                 if ('xml' === $extension) {
                     $relativePath = str_replace($sourcePath . '/', '', $file);
-                    $sourceId = pathinfo($relativePath, PATHINFO_FILENAME);
+                    $pathParts = explode('/', $relativePath);
+
+                    // Extract source name from path if available
+                    $detectedSourceName = $sourceName;
+                    if (count($pathParts) > 0) {
+                        // Try to detect source name from directory structure
+                        $firstDir = $pathParts[0];
+                        if (in_array(strtoupper($firstDir), ['CNN', 'AP', 'RT'], true)) {
+                            $detectedSourceName = strtoupper($firstDir);
+                        }
+                    }
+
+                    // Extract source_id: prefer directory name (unique identifier) over filename
+                    if (count($pathParts) > 1) {
+                        // File is in a subdirectory, use directory name as source_id
+                        // Directory name should be the unique identifier (CNNA-ST1-xxxxxxxxxxxxxxxx)
+                        $sourceId = $pathParts[count($pathParts) - 2]; // Second to last part (directory name)
+                    } else {
+                        // File is directly in source path, extract from filename
+                        $fileName = pathinfo($relativePath, PATHINFO_FILENAME);
+                        // Try to extract unique identifier first
+                        if (preg_match('/CNNA-ST1-(\d{16})/', $fileName, $matches)) {
+                            $sourceId = 'CNNA-ST1-' . $matches[1];
+                        } else {
+                            $sourceId = $fileName;
+                        }
+                    }
+
+                    // Build relative_path: include basePath if provided, otherwise use detectedSourceName/relativePath
+                    if ($normalizedBasePath) {
+                        // Include basePath in relative_path to reflect actual file location
+                        $fullRelativePath = rtrim($normalizedBasePath, '/') . '/' . $relativePath;
+                    } else {
+                        // No basePath, use detectedSourceName/relativePath
+                        $fullRelativePath = $detectedSourceName . '/' . $relativePath;
+                    }
+
+                    $fileName = basename($file);
+                    $fileVersion = $this->extractFileVersion($fileName);
 
                     $xmlFiles[] = [
-                        'source_name' => $sourceName,
+                        'source_name' => $detectedSourceName,
                         'source_id' => $sourceId,
                         'file_path' => $file,
-                        'relative_path' => $sourceName . '/' . $relativePath,
-                        'file_name' => basename($file),
+                        'relative_path' => $fullRelativePath,
+                        'file_name' => $fileName,
+                        'file_version' => $fileVersion,
                         'size' => $disk->size($file),
                         'last_modified' => $disk->lastModified($file),
                     ];
@@ -358,13 +464,17 @@ class StorageService
                         $fullRelativePath = $detectedSourceName . '/' . $relativePath;
                     }
 
+                    $fileName = basename($file);
+                    $fileVersion = $this->extractFileVersion($fileName);
+
                     $documentFiles[] = [
                         'source_name' => $detectedSourceName,
                         'source_id' => $sourceId,
                         'file_path' => $file,
                         'relative_path' => $fullRelativePath,
-                        'file_name' => basename($file),
+                        'file_name' => $fileName,
                         'extension' => $extension,
+                        'file_version' => $fileVersion,
                         'size' => $disk->size($file),
                         'last_modified' => $disk->lastModified($file),
                     ];
@@ -481,6 +591,11 @@ class StorageService
             return $this->downloadS3FileToTemp($filePath);
         }
 
+        // For GCS, download to temporary location
+        if ('gcs' === $storageType) {
+            return $this->downloadGcsFileToTemp($filePath);
+        }
+
         return $filePath;
     }
 
@@ -524,6 +639,53 @@ class StorageService
             return $tempPath;
         } catch (\Exception $e) {
             Log::error('[StorageService] S3 檔案下載失敗', [
+                'file_path' => $filePath,
+                'error' => $e->getMessage(),
+            ]);
+            return null;
+        }
+    }
+
+    /**
+     * Download GCS file to temporary location for analysis.
+     *
+     * @param string $filePath
+     * @return string|null
+     */
+    private function downloadGcsFileToTemp(string $filePath): ?string
+    {
+        try {
+            $disk = $this->getDisk('gcs');
+
+            if (!$disk->exists($filePath)) {
+                Log::warning('[StorageService] GCS 檔案不存在', [
+                    'file_path' => $filePath,
+                ]);
+                return null;
+            }
+
+            // Create temp directory
+            $tempDir = storage_path('app/temp');
+            if (!is_dir($tempDir)) {
+                mkdir($tempDir, 0755, true);
+            }
+
+            // Generate temp file path
+            $fileName = basename($filePath);
+            $tempPath = $tempDir . '/' . uniqid('gcs_', true) . '_' . $fileName;
+
+            // Download from GCS
+            $contents = $disk->get($filePath);
+            file_put_contents($tempPath, $contents);
+
+            Log::info('[StorageService] GCS 檔案下載到臨時位置', [
+                'gcs_path' => $filePath,
+                'temp_path' => $tempPath,
+            ]);
+
+            return $tempPath;
+        } catch (\Exception $e) {
+            Log::error('[StorageService] GCS 檔案下載失敗', [
                 'file_path' => $filePath,
                 'error' => $e->getMessage(),
             ]);

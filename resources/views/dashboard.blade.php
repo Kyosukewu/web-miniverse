@@ -145,7 +145,7 @@
                                 @endif
                                 @if($video->tran_restrictions)
                                 <div class="info-row">
-                                    <span class="info-label">轉檔限制：</span>
+                                    <span class="info-label">限制條件(翻譯)：</span>
                                     <span class="info-value copyable-field" data-copy-text="{{ addslashes($video->tran_restrictions) }}" title="點擊複製轉檔限制">
                                         {{ $video->tran_restrictions }}
                                     </span>
@@ -154,12 +154,48 @@
                             </div>
 
                             <div class="card-summary-section">
-                                <div class="video-player-container">
+                                <div class="video-player-container @if(isset($videoData['video_url']) && preg_match('/^https?:\/\/(www\.)?(youtube\.com|youtu\.be)/i', $videoData['video_url'])) has-youtube @endif">
                                     @if($videoData['video_url'])
+                                        @php
+                                            $videoUrl = $videoData['video_url'];
+                                            $isYouTubeUrl = preg_match('/^https?:\/\/(www\.)?(youtube\.com|youtu\.be)/i', $videoUrl);
+                                            $isFullUrl = preg_match('/^https?:\/\//i', $videoUrl);
+                                        @endphp
+                                        @if($isYouTubeUrl)
+                                            @php
+                                                // Extract YouTube video ID for embedding
+                                                $youtubeId = null;
+                                                if (preg_match('/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]+)/', $videoUrl, $matches)) {
+                                                    $youtubeId = $matches[1];
+                                                }
+                                            @endphp
+                                            @if($youtubeId)
+                                                <iframe 
+                                                    src="https://www.youtube.com/embed/{{ $youtubeId }}" 
+                                                    frameborder="0" 
+                                                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+                                                    allowfullscreen>
+                                                </iframe>
+                                            @else
+                                                <div class="video-placeholder">
+                                                    <p>無法解析 YouTube 連結</p>
+                                                    <a href="{{ $videoUrl }}" target="_blank" rel="noopener noreferrer">點擊開啟 YouTube 影片</a>
+                                                </div>
+                                            @endif
+                                        @elseif($isFullUrl)
+                                            {{-- For other full URLs (direct video file URLs), use video tag --}}
+                                            <video controls preload="metadata" width="100%" height="100%">
+                                                <source src="{{ $videoUrl }}" type="video/mp4">
+                                                您的瀏覽器不支援影片播放。
+                                                <a href="{{ $videoUrl }}" target="_blank" rel="noopener noreferrer">點擊下載影片</a>
+                                            </video>
+                                        @else
+                                            {{-- For relative paths, use video tag with /media/ prefix --}}
                                         <video controls preload="metadata" width="100%" height="100%">
-                                            <source src="{{ $videoData['video_url'] }}" type="video/mp4">
+                                                <source src="{{ $videoUrl }}" type="video/mp4">
                                             您的瀏覽器不支援影片播放。
                                         </video>
+                                        @endif
                                     @else
                                         <div class="video-placeholder">無影片預覽</div>
                                     @endif
@@ -206,12 +242,20 @@
                             <div class="video-meta-footer">
                                 <p>
                                     <span class="icon icon-status label">分析狀態:</span> 
-                                    <span class="copyable-field" data-copy-text="{{ $video->analysis_status->value }}" title="點擊複製分析狀態">{{ $video->analysis_status->value }}</span>
+                                    <span>{{ $video->analysis_status->value }}</span>
+                                </p>
+                                <p>
+                                    <span class="icon icon-version label">XML 檔案版本:</span> 
+                                    <span>{{ $video->xml_file_version ?? 0 }}</span>
+                                </p>
+                                <p>
+                                    <span class="icon icon-version label">MP4 檔案版本:</span> 
+                                    <span>{{ $video->mp4_file_version ?? 0 }}</span>
                                 </p>
                                 @if(null !== $analysisResult && null !== $analysisResult['prompt_version'])
                                     <p class="prompt-version-info">
                                         <span class="icon icon-prompt label">影片 Prompt 版本:</span> 
-                                        <span class="copyable-field" data-copy-text="{{ $analysisResult['prompt_version'] }}" title="點擊複製影片 Prompt 版本">{{ $analysisResult['prompt_version'] }}</span>
+                                        <span>{{ $analysisResult['prompt_version'] }}</span>
                                     </p>
                                 @else
                                     <p class="prompt-version-info"><span class="icon icon-prompt label">影片 Prompt 版本:</span> <span class="no-data">N/A</span></p>
@@ -219,7 +263,7 @@
                                 @if($video->prompt_version)
                                     <p class="prompt-version-info">
                                         <span class="icon icon-prompt label">文本 Prompt 版本:</span> 
-                                        <span class="copyable-field" data-copy-text="{{ $video->prompt_version }}" title="點擊複製文本 Prompt 版本">{{ $video->prompt_version }}</span>
+                                        <span>{{ $video->prompt_version }}</span>
                                     </p>
                                 @else
                                     <p class="prompt-version-info"><span class="icon icon-prompt label">文本 Prompt 版本:</span> <span class="no-data">N/A</span></p>

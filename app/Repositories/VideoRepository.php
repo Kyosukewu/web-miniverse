@@ -178,17 +178,38 @@ class VideoRepository
 
     /**
      * Get videos that are not completed (analysis_status != COMPLETED).
+     * Optionally include completed videos for sources that support version checking.
      *
      * @param string|null $sourceName Optional source name filter
      * @param int $limit
+     * @param bool $includeCompletedForVersionCheck Include completed videos for version check (if source supports it)
      * @return Collection<int, Video>
      */
-    public function getIncompleteVideos(?string $sourceName = null, int $limit = 100): Collection
+    public function getIncompleteVideos(?string $sourceName = null, int $limit = 100, bool $includeCompletedForVersionCheck = false): Collection
     {
-        $query = Video::where('analysis_status', '!=', AnalysisStatus::COMPLETED);
+        $query = Video::query();
 
         if (null !== $sourceName && '' !== $sourceName) {
-            $query->where('source_name', strtoupper($sourceName));
+            $sourceNameUpper = strtoupper($sourceName);
+            $query->where('source_name', $sourceNameUpper);
+
+            // Include completed videos for version check if requested
+            if ($includeCompletedForVersionCheck) {
+                $query->where(function ($q) {
+                    $q->where('analysis_status', '!=', AnalysisStatus::COMPLETED)
+                      ->orWhere(function ($subQ) {
+                          $subQ->where('analysis_status', AnalysisStatus::COMPLETED)
+                               ->where(function ($versionQ) {
+                                   $versionQ->whereNotNull('xml_file_version')
+                                           ->orWhereNotNull('mp4_file_version');
+                               });
+                      });
+                });
+            } else {
+                $query->where('analysis_status', '!=', AnalysisStatus::COMPLETED);
+            }
+        } else {
+            $query->where('analysis_status', '!=', AnalysisStatus::COMPLETED);
         }
 
         return $query->orderBy('fetched_at', 'asc')
