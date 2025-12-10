@@ -36,7 +36,7 @@ class CnnFetchService implements FetchServiceInterface
      */
     public function fetchResourceList(): array
     {
-        return $this->fetchResourceListWithProgress(50, false, null);
+        return $this->fetchResourceListWithProgress(50, false, false, null);
     }
 
     /**
@@ -44,12 +44,14 @@ class CnnFetchService implements FetchServiceInterface
      *
      * @param int $batchSize Batch size for processing files
      * @param bool $dryRun If true, only simulate without actually moving files
+     * @param bool $keepLocal If true, keep local files after uploading to GCS
      * @param callable|null $progressCallback Callback function(current, total, message)
      * @return array<int, array<string, mixed>>
      */
     public function fetchResourceListWithProgress(
         int $batchSize = 50,
         bool $dryRun = false,
+        bool $keepLocal = false,
         ?callable $progressCallback = null
     ): array {
         $gcsPath = $this->config['gcs_path'] ?? 'cnn/';
@@ -60,6 +62,7 @@ class CnnFetchService implements FetchServiceInterface
             'gcs_path' => $gcsPath,
             'batch_size' => $batchSize,
             'dry_run' => $dryRun,
+            'keep_local' => $keepLocal,
         ]);
 
         // Step 1: First pass - count total files (for progress display)
@@ -92,6 +95,7 @@ class CnnFetchService implements FetchServiceInterface
                     $localFiles,
                     $gcsPath,
                     $dryRun,
+                    $keepLocal,
                     $progressCallback,
                     $processedCount,
                     $totalFiles
@@ -116,6 +120,7 @@ class CnnFetchService implements FetchServiceInterface
                 $localFiles,
                 $gcsPath,
                 $dryRun,
+                $keepLocal,
                 $progressCallback,
                 $processedCount,
                 $totalFiles
@@ -170,6 +175,7 @@ class CnnFetchService implements FetchServiceInterface
      * @param array<int, array<string, mixed>> $files
      * @param string $gcsBasePath
      * @param bool $dryRun
+     * @param bool $keepLocal
      * @param callable|null $progressCallback
      * @param int $currentProcessed
      * @param int $totalFiles
@@ -179,6 +185,7 @@ class CnnFetchService implements FetchServiceInterface
         array $files,
         string $gcsBasePath,
         bool $dryRun,
+        bool $keepLocal,
         ?callable $progressCallback,
         int $currentProcessed,
         int $totalFiles
@@ -207,7 +214,7 @@ class CnnFetchService implements FetchServiceInterface
                         continue;
                     }
 
-                    $result = $this->moveSingleFileToGcs($file, $uniqueId, $gcsBasePath);
+                    $result = $this->moveSingleFileToGcs($file, $uniqueId, $gcsBasePath, $keepLocal);
 
                     if ($result['moved']) {
                         $movedCount++;
@@ -264,9 +271,10 @@ class CnnFetchService implements FetchServiceInterface
      * @param array<string, mixed> $file
      * @param string $uniqueId
      * @param string $gcsBasePath
+     * @param bool $keepLocal If true, keep local file after uploading to GCS
      * @return array{moved: bool, skipped: bool, error: bool}
      */
-    private function moveSingleFileToGcs(array $file, string $uniqueId, string $gcsBasePath): array
+    private function moveSingleFileToGcs(array $file, string $uniqueId, string $gcsBasePath, bool $keepLocal = false): array
     {
         $gcsDisk = Storage::disk('gcs');
         $targetDir = rtrim($gcsBasePath, '/') . '/' . $uniqueId;
@@ -292,15 +300,20 @@ class CnnFetchService implements FetchServiceInterface
             $gcsDisk->put($targetPath, $content);
             unset($content); // Free memory immediately
 
-            // Delete local file after successful upload
-            if (@unlink($file['path'])) {
-                return ['moved' => true, 'skipped' => false, 'error' => false];
+            // Delete local file after successful upload (if not keeping local)
+            if (!$keepLocal) {
+                if (@unlink($file['path'])) {
+                    return ['moved' => true, 'skipped' => false, 'error' => false];
+                } else {
+                    Log::warning('[CnnFetchService] 檔案已上傳到 GCS，但無法刪除本地檔案', [
+                        'local_path' => $file['path'],
+                        'gcs_path' => $targetPath,
+                    ]);
+                    return ['moved' => true, 'skipped' => false, 'error' => false]; // Still consider it moved
+                }
             } else {
-                Log::warning('[CnnFetchService] 檔案已上傳到 GCS，但無法刪除本地檔案', [
-                    'local_path' => $file['path'],
-                    'gcs_path' => $targetPath,
-                ]);
-                return ['moved' => true, 'skipped' => false, 'error' => false]; // Still consider it moved
+                // Keep local file
+                return ['moved' => true, 'skipped' => false, 'error' => false];
             }
         } catch (\Exception $e) {
             Log::error('[CnnFetchService] 上傳到 GCS 失敗', [

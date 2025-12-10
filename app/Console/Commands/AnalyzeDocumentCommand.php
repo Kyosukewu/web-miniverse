@@ -620,8 +620,8 @@ class AnalyzeDocumentCommand extends Command
                     continue;
                 }
 
-                try {
-                    $size = $disk->size($file);
+                    try {
+                        $size = $disk->size($file);
                     $fileName = basename($file);
                     $fileVersion = $this->storageService->extractFileVersion($fileName);
                     
@@ -632,13 +632,13 @@ class AnalyzeDocumentCommand extends Command
                     $mp4UniqueId = $this->extractUniqueIdFromFileName($fileName);
                     
                     $mp4Data = [
-                        'file' => $file,
-                        'size' => $size,
+                            'file' => $file,
+                            'size' => $size,
                         'name' => $fileName,
                         'version' => $fileVersion,
                         'version_number' => $versionNumber,
                         'unique_id' => $mp4UniqueId,
-                    ];
+                        ];
                     
                     $mp4Files[] = $mp4Data;
                     
@@ -646,13 +646,13 @@ class AnalyzeDocumentCommand extends Command
                     if (null !== $targetUniqueId && $mp4UniqueId === $targetUniqueId) {
                         $matchingMp4Files[] = $mp4Data;
                     }
-                } catch (\Exception $e) {
-                    // Skip files that can't be read
-                    Log::warning('[AnalyzeDocumentCommand] 無法取得 MP4 檔案大小', [
-                        'file' => $file,
-                        'error' => $e->getMessage(),
-                    ]);
-                    continue;
+                    } catch (\Exception $e) {
+                        // Skip files that can't be read
+                        Log::warning('[AnalyzeDocumentCommand] 無法取得 MP4 檔案大小', [
+                            'file' => $file,
+                            'error' => $e->getMessage(),
+                        ]);
+                        continue;
                 }
             }
             

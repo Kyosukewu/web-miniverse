@@ -13,15 +13,10 @@ return [
      */
 
     'cnn' => [
-        'storage_type' => env('CNN_STORAGE_TYPE', 'gcs'), // 預設使用 GCS
-        // 本地來源路徑
+        // 本地來源路徑（從此處抓取檔案）
         'source_path' => env('CNN_SOURCE_PATH', '/mnt/PushDownloads'),
-        // GCS 配置
-        'gcs_bucket' => env('CNN_GCS_BUCKET'),
+        // GCS 路徑前綴（檔案移動到此路徑下）
         'gcs_path' => env('CNN_GCS_PATH', 'cnn/'),
-        // S3 配置（備用）
-        's3_bucket' => env('CNN_S3_BUCKET'),
-        's3_path' => env('CNN_S3_PATH', 'cnn/'),
         // 版本檢查配置
         'version_check_enabled' => true, // CNN 支援版本號檢查 (_0, _1, _2)
     ],
