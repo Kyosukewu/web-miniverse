@@ -9,8 +9,11 @@ RUN apt-get update && apt-get install -y \
     git \
     curl \
     libpng-dev \
+    libjpeg-dev \
+    libfreetype6-dev \
     libonig-dev \
     libxml2-dev \
+    libzip-dev \
     zip \
     unzip \
     supervisor \
@@ -22,8 +25,11 @@ RUN apt-get update && apt-get install -y \
 # 安裝 yt-dlp（用於 YouTube 字幕下載）
 RUN pip3 install --break-system-packages yt-dlp
 
-# 安裝 PHP 擴展
-RUN docker-php-ext-install pdo_mysql pdo_pgsql mbstring exif pcntl bcmath gd
+# 配置 GD 擴展（需要先配置）
+RUN docker-php-ext-configure gd --with-freetype --with-jpeg
+
+# 安裝 PHP 擴展（移除 pdo_pgsql，只使用 MySQL）
+RUN docker-php-ext-install pdo_mysql mbstring exif pcntl bcmath gd zip
 
 # 安裝 Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
