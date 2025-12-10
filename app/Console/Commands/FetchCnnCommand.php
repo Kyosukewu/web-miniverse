@@ -6,13 +6,14 @@ namespace App\Console\Commands;
 
 use App\Services\Sources\CnnFetchService;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Log;
 
 /**
  * CNN 資源獲取命令
  *
  * 流程：
- * 1. 掃描 /mnt/PushDownloads 目錄中的檔案
+ * 1. 掃描配置的來源目錄（config('sources.cnn.source_path')）中的檔案
  * 2. 根據描述標籤和唯一識別碼整理檔案
  * 3. 將整理後的檔案上傳到 GCS 指定路徑
  * 4. 根據 --keep-local 選項決定是否刪除本地檔案（預設會刪除）
@@ -34,7 +35,7 @@ class FetchCnnCommand extends Command
      *
      * @var string
      */
-    protected $description = '掃描 /mnt/PushDownloads 目錄，整理檔案後上傳到 GCS';
+    protected $description = '掃描配置的來源目錄，整理檔案後上傳到 GCS';
 
     /**
      * Create a new command instance.
@@ -51,7 +52,7 @@ class FetchCnnCommand extends Command
      * Execute the console command.
      *
      * 執行流程：
-     * 1. 掃描 /mnt/PushDownloads 目錄
+     * 1. 掃描配置的來源目錄
      * 2. 根據描述標籤分組檔案
      * 3. 將檔案移動到 GCS（按唯一識別碼組織）
      * 4. 根據選項決定是否刪除本地檔案
@@ -64,17 +65,22 @@ class FetchCnnCommand extends Command
         $batchSize = (int) $this->option('batch-size');
         $dryRun = $this->option('dry-run');
         $keepLocal = $this->option('keep-local');
+        $sourcePath = Config::get('sources.cnn.source_path', '/mnt/PushDownloads');
 
         if ($dryRun) {
-            $this->warn('⚠️  乾跑模式：不會實際上傳檔案到 GCS');
+            $this->warn('⚠️  乾跑模式：不會實際上傳檔案到 GCS，也不會刪除本地檔案');
         }
 
-        if ($keepLocal) {
+        if ($keepLocal && !$dryRun) {
             $this->info('ℹ️  保留本地檔案模式：上傳到 GCS 後不會刪除本地檔案');
         }
 
         $this->info('開始處理 CNN 資源...');
-        $this->info('流程：掃描 /mnt/PushDownloads → 整理檔案 → 上傳到 GCS' . ($keepLocal ? ' → 保留本地檔案' : ' → 刪除本地檔案'));
+        if ($dryRun) {
+            $this->info("流程：掃描 {$sourcePath} → 整理檔案 → 模擬上傳到 GCS（不實際執行）");
+        } else {
+            $this->info("流程：掃描 {$sourcePath} → 整理檔案 → 上傳到 GCS" . ($keepLocal ? ' → 保留本地檔案' : ' → 刪除本地檔案'));
+        }
 
         try {
             // 執行完整流程：掃描本地 → 整理 → 上傳到 GCS → 返回資源列表

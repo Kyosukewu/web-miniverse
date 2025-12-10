@@ -214,7 +214,7 @@ class CnnFetchService implements FetchServiceInterface
                         continue;
                     }
 
-                    $result = $this->moveSingleFileToGcs($file, $uniqueId, $gcsBasePath, $keepLocal);
+                    $result = $this->moveSingleFileToGcs($file, $uniqueId, $gcsBasePath, $keepLocal, $dryRun);
 
                     if ($result['moved']) {
                         $movedCount++;
@@ -272,10 +272,16 @@ class CnnFetchService implements FetchServiceInterface
      * @param string $uniqueId
      * @param string $gcsBasePath
      * @param bool $keepLocal If true, keep local file after uploading to GCS
+     * @param bool $dryRun If true, do not actually upload or delete files
      * @return array{moved: bool, skipped: bool, error: bool}
      */
-    private function moveSingleFileToGcs(array $file, string $uniqueId, string $gcsBasePath, bool $keepLocal = false): array
+    private function moveSingleFileToGcs(array $file, string $uniqueId, string $gcsBasePath, bool $keepLocal = false, bool $dryRun = false): array
     {
+        // 乾跑模式：不實際上傳或刪除檔案
+        if ($dryRun) {
+            return ['moved' => true, 'skipped' => false, 'error' => false];
+        }
+
         $gcsDisk = Storage::disk('gcs');
         $targetDir = rtrim($gcsBasePath, '/') . '/' . $uniqueId;
         $targetPath = $targetDir . '/' . $file['name'];
