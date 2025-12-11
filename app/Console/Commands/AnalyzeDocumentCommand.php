@@ -15,7 +15,7 @@ use Illuminate\Support\Facades\Log;
 class AnalyzeDocumentCommand extends Command
 {
     /**
-     * The name and signature of the console command.
+     * 控制台命令的名稱和簽名。
      *
      * @var string
      */
@@ -27,14 +27,14 @@ class AnalyzeDocumentCommand extends Command
                             {--prompt-version= : Prompt 版本 (可選)}';
 
     /**
-     * The console command description.
+     * 控制台命令描述。
      *
      * @var string
      */
     protected $description = '從指定儲存空間撈取 XML 或 TXT 文檔並進行分析';
 
     /**
-     * Create a new command instance.
+     * 建立新的命令實例。
      */
     public function __construct(
         private AnalyzeService $analyzeService,
@@ -46,7 +46,7 @@ class AnalyzeDocumentCommand extends Command
     }
 
     /**
-     * Execute the console command.
+     * 執行控制台命令。
      *
      * @return int
      */
@@ -60,7 +60,7 @@ class AnalyzeDocumentCommand extends Command
 
         $this->info("開始掃描來源: {$sourceName}, 儲存空間: {$storageType}");
 
-        // Scan for document files (XML and TXT)
+        // 掃描文檔檔案 (XML 和 TXT)
         $documentFiles = $this->storageService->scanDocumentFiles($storageType, $sourceName, $basePath);
 
         if (empty($documentFiles)) {
@@ -70,11 +70,11 @@ class AnalyzeDocumentCommand extends Command
 
         $this->info("找到 " . count($documentFiles) . " 個文檔檔案");
 
-        // Filter to keep only the latest version for each source_id
+        // 過濾以保留每個 source_id 的最新版本
         $documentFiles = $this->filterLatestVersionDocuments($documentFiles);
         $this->info("過濾後剩餘 " . count($documentFiles) . " 個文檔檔案（每個 source_id 只保留最新版本）");
 
-        // Process document files
+        // 處理文檔檔案
         $processedCount = 0;
         $skippedCount = 0;
         $errorCount = 0;
@@ -88,7 +88,7 @@ class AnalyzeDocumentCommand extends Command
             }
 
             try {
-                // Read document file content
+                // 讀取文檔檔案內容
                 $fileContent = $this->storageService->readFile($storageType, $documentFile['file_path']);
 
                 if (null === $fileContent) {
@@ -102,15 +102,15 @@ class AnalyzeDocumentCommand extends Command
                 $textContent = '';
                 $mp4FilePaths = ['broadcast' => '', 'proxy' => ''];
 
-                // Parse content based on file type
+                // 根據檔案類型解析內容
                 if ('xml' === $fileExtension) {
-                // Extract MP4 file paths from CNN XML (objPaths) before parsing
+                // 在解析前從 CNN XML (objPaths) 提取 MP4 檔案路徑
                     $mp4FilePaths = $this->extractMp4PathsFromXml($fileContent, $documentFile);
 
-                // Parse XML to text content
+                // 將 XML 解析為文字內容
                     $textContent = $this->parseXmlToText($fileContent);
                 } elseif ('txt' === $fileExtension) {
-                    // Parse TXT file content
+                    // 解析 TXT 檔案內容
                     $textContent = $this->parseTxtToText($fileContent);
                 } else {
                     $this->warn("\n不支援的檔案類型: {$fileExtension}");
@@ -126,21 +126,21 @@ class AnalyzeDocumentCommand extends Command
                     continue;
                 }
 
-                // Determine nas_path (prefer MP4 in same directory matching XML's unique ID, then MP4 from XML, fallback to document path)
+                // 確定 nas_path（優先使用與 XML 唯一識別碼匹配的同目錄 MP4，然後使用 XML 中的 MP4，最後回退到文檔路徑）
                 $nasPath = $this->determineNasPath(
                     $storageType,
                     $documentFile,
                     $mp4FilePaths
                 );
 
-                // Check if video already exists
+                // 檢查影片是否已存在
                 $existingVideo = $this->videoRepository->getBySourceId(
                     $documentFile['source_name'],
                     $documentFile['source_id']
                 );
 
-                // Check version and determine if reanalysis is needed (for XML files)
-                // Only perform version check if source supports it (e.g., CNN)
+                // 檢查版本並確定是否需要重新分析（針對 XML 檔案）
+                // 僅在來源支援時執行版本檢查（例如 CNN）
                 $versionCheckEnabled = $this->versionChecker->shouldIncludeCompletedForVersionCheck($documentFile['source_name']);
                 $versionCheck = $this->versionChecker->shouldReanalyze(
                     $documentFile['source_name'],
@@ -150,9 +150,9 @@ class AnalyzeDocumentCommand extends Command
                     'xml'
                 );
 
-                // Handle existing video
+                // 處理現有影片
                 if (null !== $existingVideo) {
-                    // Skip if completed and version hasn't changed (only for sources with version checking)
+                    // 如果已完成且版本未變更則跳過（僅適用於支援版本檢查的來源）
                     if ($versionCheckEnabled && AnalysisStatus::COMPLETED === $existingVideo->analysis_status && !$versionCheck['should_reanalyze']) {
                         $this->line("\n跳過已完成分析的文檔: {$documentFile['source_id']}");
                         $skippedCount++;
@@ -162,13 +162,13 @@ class AnalyzeDocumentCommand extends Command
 
                     $videoId = $existingVideo->id;
 
-                    // Only update xml_file_version if version checking is enabled for this source
+                    // 僅在此來源啟用版本檢查時更新 xml_file_version
                     $updateData = [];
                     if ($versionCheckEnabled && null !== $versionCheck['new_version']) {
                         $updateData['xml_file_version'] = $versionCheck['new_version'];
                     }
                     
-                    // Update nas_path if version changed or if it's different
+                    // 如果版本變更或路徑不同，則更新 nas_path
                     if ($versionCheck['should_reanalyze'] || $existingVideo->nas_path !== $nasPath) {
                         $updateData['nas_path'] = $nasPath;
                     }
@@ -181,7 +181,7 @@ class AnalyzeDocumentCommand extends Command
                         }
                     }
                 } else {
-                    // Create new video record
+                    // 建立新的影片記錄
                     $createData = [
                         'source_name' => $documentFile['source_name'],
                         'source_id' => $documentFile['source_id'],
@@ -189,12 +189,12 @@ class AnalyzeDocumentCommand extends Command
                         'fetched_at' => date('Y-m-d H:i:s', $documentFile['last_modified']),
                     ];
                     
-                    // Only set version fields if version checking is enabled for this source
+                    // 僅在此來源啟用版本檢查時設定版本欄位
                     if ($versionCheckEnabled) {
                         $createData['xml_file_version'] = $versionCheck['new_version'] ?? 0;
-                        $createData['mp4_file_version'] = 0; // Default to 0 for new records
+                        $createData['mp4_file_version'] = 0; // 新記錄預設為 0
                     } else {
-                        // For sources without version checking, set to 0 (default)
+                        // 對於不支援版本檢查的來源，設為 0（預設值）
                         $createData['xml_file_version'] = 0;
                         $createData['mp4_file_version'] = 0;
                     }
@@ -202,28 +202,28 @@ class AnalyzeDocumentCommand extends Command
                     $videoId = $this->videoRepository->findOrCreate($createData);
                 }
 
-                // Update status to metadata_extracting
+                // 將狀態更新為 metadata_extracting
                 $this->videoRepository->updateAnalysisStatus(
                     $videoId,
                     AnalysisStatus::METADATA_EXTRACTING,
                     new \DateTime()
                 );
 
-                // Execute text analysis
+                // 執行文字分析
                 $analysisResult = $this->analyzeService->executeTextAnalysis($textContent, $promptVersion);
 
                 if (empty($analysisResult)) {
                     throw new \Exception('文本分析結果為空');
                 }
 
-                // Handle array response (AI may return array with single object)
-                // Check if result is an array with numeric keys (indexed array)
+                // 處理陣列回應（AI 可能返回包含單一物件的陣列）
+                // 檢查結果是否為具有數字鍵的陣列（索引陣列）
                 if (is_array($analysisResult) && isset($analysisResult[0]) && is_array($analysisResult[0])) {
-                    // Extract prompt version before overwriting (it might be at root level)
+                    // 在覆寫前提取提示版本（它可能在根層級）
                     $promptVersionFromResult = $analysisResult['_prompt_version'] ?? null;
-                    // Use first element if result is an array
+                    // 如果結果是陣列，使用第一個元素
                     $analysisResult = $analysisResult[0];
-                    // Restore prompt version if it was in the original array
+                    // 如果提示版本在原始陣列中，則還原它
                     if (null !== $promptVersionFromResult) {
                         $analysisResult['_prompt_version'] = $promptVersionFromResult;
                     }
@@ -237,7 +237,7 @@ class AnalyzeDocumentCommand extends Command
                     'keys' => is_array($analysisResult) ? array_keys($analysisResult) : [],
                 ]);
 
-                // Update video with metadata from analysis
+                // 使用分析結果更新影片元數據
                 $updateData = [];
                 if (isset($analysisResult['title'])) {
                     $updateData['title'] = $analysisResult['title'];
@@ -264,10 +264,10 @@ class AnalyzeDocumentCommand extends Command
                     $updateData['shotlist_content'] = $analysisResult['shotlist_content'];
                 }
 
-                // Update prompt version
+                // 更新提示版本
                 $updateData['prompt_version'] = $analysisResult['_prompt_version'] ?? $promptVersion ?? 'v3';
 
-                // Update video metadata
+                // 更新影片元數據
                 if (!empty($updateData)) {
                     Log::info('[AnalyzeDocumentCommand] 準備更新影片 metadata', [
                         'video_id' => $videoId,
@@ -292,7 +292,7 @@ class AnalyzeDocumentCommand extends Command
                     ]);
                 }
 
-                // Update status to metadata_extracted
+                // 將狀態更新為 metadata_extracted
                 $statusUpdated = $this->videoRepository->updateAnalysisStatus(
                     $videoId,
                     AnalysisStatus::METADATA_EXTRACTED,
@@ -319,7 +319,7 @@ class AnalyzeDocumentCommand extends Command
                     'error' => $e->getMessage(),
                 ]);
 
-                // Update status to failed
+                // 將狀態更新為失敗
                 if (isset($videoId)) {
                     $this->videoRepository->updateAnalysisStatus(
                         $videoId,
@@ -337,7 +337,7 @@ class AnalyzeDocumentCommand extends Command
         $progressBar->finish();
         $this->newLine(2);
 
-        // Summary
+        // 摘要
         $this->info("分析完成！");
         $this->table(
             ['狀態', '數量'],
@@ -352,7 +352,7 @@ class AnalyzeDocumentCommand extends Command
     }
 
     /**
-     * Parse XML content to text (CNN format).
+     * 將 XML 內容解析為文字（CNN 格式）。
      *
      * @param string $xmlContent
      * @return string
@@ -363,33 +363,33 @@ class AnalyzeDocumentCommand extends Command
             $xml = simplexml_load_string($xmlContent);
 
             if (false === $xml) {
-                // If XML parsing fails, return raw content
+                // 如果 XML 解析失敗，返回原始內容
                 return $xmlContent;
             }
 
-            // For CNN XML format, extract all text content including script information
-            // Convert XML to string while preserving structure
+            // 對於 CNN XML 格式，提取所有文字內容，包括腳本資訊
+            // 將 XML 轉換為字串，同時保留結構
             $textParts = [];
 
-            // Extract title if exists
+            // 如果存在則提取標題
             if (isset($xml->title)) {
                 $textParts[] = 'Title: ' . (string) $xml->title;
             }
 
-            // Extract description if exists
+            // 如果存在則提取描述
             if (isset($xml->description)) {
                 $textParts[] = 'Description: ' . (string) $xml->description;
             }
 
-            // Extract script content (CNN XML may have script tags)
+            // 提取腳本內容（CNN XML 可能有腳本標籤）
             if (isset($xml->script)) {
                 $textParts[] = 'Script: ' . (string) $xml->script;
             }
 
-            // Extract all text nodes recursively
+            // 遞迴提取所有文字節點
             $this->extractTextNodes($xml, $textParts);
 
-            // If no specific content found, use all text content
+            // 如果未找到特定內容，使用所有文字內容
             if (empty($textParts)) {
                 $text = strip_tags($xml->asXML());
                 $text = preg_replace('/\s+/', ' ', $text);
@@ -397,10 +397,10 @@ class AnalyzeDocumentCommand extends Command
                 return $text;
             }
 
-            // Combine all text parts
+            // 合併所有文字部分
             $text = implode("\n", $textParts);
 
-            // Clean up whitespace but preserve line breaks
+            // 清理空白字元但保留換行
             $text = preg_replace('/[ \t]+/', ' ', $text);
             $text = preg_replace('/\n\s*\n+/', "\n\n", $text);
             $text = trim($text);
@@ -415,7 +415,7 @@ class AnalyzeDocumentCommand extends Command
     }
 
     /**
-     * Extract text nodes from XML recursively.
+     * 遞迴地從 XML 提取文字節點。
      *
      * @param \SimpleXMLElement $xml
      * @param array<string> $textParts
@@ -423,21 +423,21 @@ class AnalyzeDocumentCommand extends Command
      */
     private function extractTextNodes(\SimpleXMLElement $xml, array &$textParts): void
     {
-        // Get direct text content
+        // 獲取直接文字內容
         $text = trim((string) $xml);
         if ('' !== $text && strlen($text) > 10) {
-            // Only add substantial text content
+            // 僅添加實質文字內容
             $textParts[] = $text;
         }
 
-        // Recursively process children
+        // 遞迴處理子節點
         foreach ($xml->children() as $child) {
             $this->extractTextNodes($child, $textParts);
         }
     }
 
     /**
-     * Parse date time string to database format.
+     * 將日期時間字串解析為資料庫格式。
      *
      * @param string|null $dateTimeString
      * @return string|null
@@ -461,8 +461,8 @@ class AnalyzeDocumentCommand extends Command
     }
 
     /**
-     * Extract MP4 file names from CNN XML objPaths.
-     * Returns only file names, not full paths.
+     * 從 CNN XML objPaths 提取 MP4 檔案名稱。
+     * 僅返回檔案名稱，不返回完整路徑。
      *
      * @param string $xmlContent
      * @param array<string, mixed> $xmlFile
@@ -482,16 +482,16 @@ class AnalyzeDocumentCommand extends Command
                 return $mp4Paths;
             }
 
-            // Look for objPaths tag
+            // 尋找 objPaths 標籤
             if (isset($xml->objPaths)) {
-                // Get broadcast quality file (objFile with MP4)
+                // 獲取廣播品質檔案（帶有 MP4 的 objFile）
                 if (isset($xml->objPaths->objFile)) {
                     foreach ($xml->objPaths->objFile as $objFile) {
                         $fileName = (string) $objFile;
                         $techDesc = (string) $objFile['techDescription'] ?? '';
 
                         if (str_ends_with(strtolower($fileName), '.mp4')) {
-                            // Prefer NTSC or PAL broadcast quality
+                            // 優先使用 NTSC 或 PAL 廣播品質
                             if (str_contains($techDesc, 'NTSC') || str_contains($techDesc, 'PAL')) {
                                 $mp4Paths['broadcast'] = basename($fileName);
                                 break;
@@ -502,14 +502,14 @@ class AnalyzeDocumentCommand extends Command
                     }
                 }
 
-                // Get proxy file (objProxyFile with MP4)
+                // 獲取代理檔案（帶有 MP4 的 objProxyFile）
                 if (isset($xml->objPaths->objProxyFile)) {
                     foreach ($xml->objPaths->objProxyFile as $objProxyFile) {
                         $fileName = (string) $objProxyFile;
                         $techDesc = (string) $objProxyFile['techDescription'] ?? '';
 
                         if (str_ends_with(strtolower($fileName), '.mp4')) {
-                            // Prefer H264 proxy format
+                            // 優先使用 H264 代理格式
                             if (str_contains($techDesc, 'H264')) {
                                 $mp4Paths['proxy'] = basename($fileName);
                                 break;
@@ -530,8 +530,9 @@ class AnalyzeDocumentCommand extends Command
     }
 
     /**
-     * Determine nas_path for video record.
-     * Priority: 1. MP4 in same directory, 2. MP4 from XML (if exists), 3. Document path.
+     * 確定影片記錄的 nas_path。
+     * 優先順序：1. 同目錄中的 MP4，2. XML 中的 MP4（如果存在），3. 文檔路徑。
+     * 對於 GCS 儲存，確保路徑相對於 bucket 根目錄。
      *
      * @param string $storageType
      * @param array<string, mixed> $documentFile
@@ -540,7 +541,7 @@ class AnalyzeDocumentCommand extends Command
      */
     private function determineNasPath(string $storageType, array $documentFile, array $mp4FilePaths): string
     {
-        // Priority 1: Find the best MP4 file in the same directory (matching XML's unique ID if possible)
+        // 優先順序 1：在同目錄中尋找最佳 MP4 檔案（如果可能，匹配 XML 的唯一識別碼）
         $bestMp4 = $this->findSmallestMp4InSameDirectory(
             $storageType,
             $documentFile['file_path'],
@@ -548,45 +549,94 @@ class AnalyzeDocumentCommand extends Command
             $documentFile
         );
         if (null !== $bestMp4) {
-            return $bestMp4;
+            return $this->normalizeStoragePath($storageType, $bestMp4, $documentFile);
         }
 
-        // Priority 2: Try MP4 from XML (if file exists in same directory)
+        // 優先順序 2：嘗試使用 XML 中的 MP4（如果檔案存在於同目錄中）
         if (!empty($mp4FilePaths['broadcast']) || !empty($mp4FilePaths['proxy'])) {
-            $documentDir = dirname($documentFile['relative_path']);
+            $documentDir = dirname($documentFile['file_path']);
             $disk = $this->storageService->getDisk($storageType);
             
-            // Try broadcast first
+            // 首先嘗試廣播
             if (!empty($mp4FilePaths['broadcast'])) {
-                $xmlMp4Path = $documentDir . '/' . $mp4FilePaths['broadcast'];
-                $xmlMp4FilePath = dirname($documentFile['file_path']) . '/' . $mp4FilePaths['broadcast'];
+                $xmlMp4FilePath = $documentDir . '/' . $mp4FilePaths['broadcast'];
                 if ($disk->exists($xmlMp4FilePath)) {
+                    // 使用 file_path 格式（完整 GCS 路徑）作為 nas_path
+                    $xmlMp4Path = $this->normalizeStoragePath($storageType, $xmlMp4FilePath, $documentFile);
                     return $xmlMp4Path;
                 }
             }
             
-            // Try proxy
+            // 嘗試代理
             if (!empty($mp4FilePaths['proxy'])) {
-                $xmlMp4Path = $documentDir . '/' . $mp4FilePaths['proxy'];
-                $xmlMp4FilePath = dirname($documentFile['file_path']) . '/' . $mp4FilePaths['proxy'];
+                $xmlMp4FilePath = $documentDir . '/' . $mp4FilePaths['proxy'];
                 if ($disk->exists($xmlMp4FilePath)) {
+                    // 使用 file_path 格式（完整 GCS 路徑）作為 nas_path
+                    $xmlMp4Path = $this->normalizeStoragePath($storageType, $xmlMp4FilePath, $documentFile);
                     return $xmlMp4Path;
                 }
             }
         }
 
-        // Priority 3: Use document path as fallback
-        return $documentFile['relative_path'];
+        // 優先順序 3：使用文檔路徑作為回退
+        // 對於 GCS，優先使用 file_path（完整路徑）而非 relative_path
+        return $this->normalizeStoragePath($storageType, $documentFile['file_path'] ?? $documentFile['relative_path'], $documentFile);
     }
 
     /**
-     * Find the best MP4 file in the same directory as the given file.
-     * Priority: 1. MP4 with matching unique ID (if XML file provided), 2. Latest version, 3. Smallest file size.
+     * 標準化 nas_path 的儲存路徑。
+     * 對於 GCS，確保路徑相對於 bucket 根目錄（使用 file_path 格式）。
+     * 對於其他儲存類型，使用 relative_path。
+     *
+     * @param string $storageType
+     * @param string $path
+     * @param array<string, mixed> $documentFile
+     * @return string
+     */
+    private function normalizeStoragePath(string $storageType, string $path, array $documentFile): string
+    {
+        // 對於 GCS，使用 file_path 格式（相對於 bucket 根目錄的完整路徑）
+        if ('gcs' === $storageType) {
+            // 如果路徑已經是完整的 file_path（匹配 documentFile 的 file_path 結構），直接使用它
+            // 檢查路徑是否看起來像完整的 GCS 路徑（包含目錄結構）
+            if (str_contains($path, '/') && isset($documentFile['file_path'])) {
+                // 檢查路徑是否與 file_path 處於相同的目錄結構中
+                $documentDir = dirname($documentFile['file_path']);
+                $pathDir = dirname($path);
+                
+                // 如果路徑處於相同的目錄結構中，按原樣使用路徑
+                if ($pathDir === $documentDir || str_starts_with($path, $documentDir)) {
+                    // 確保沒有前導斜線
+                    return ltrim($path, '/');
+                }
+                
+                // 如果路徑是相對的（僅檔案名），從 documentFile 的目錄構建完整路徑
+                if (!str_contains($path, '/')) {
+                    $fullPath = $documentDir . '/' . $path;
+                    $disk = $this->storageService->getDisk($storageType);
+                    if ($disk->exists($fullPath)) {
+                        return ltrim($fullPath, '/');
+                    }
+                }
+            }
+            
+            // 回退：使用提供的路徑，確保沒有前導斜線
+            // 這處理 relative_path 格式（例如，cnn/CNNA-ST1-xxx/file.mp4）
+            return ltrim($path, '/');
+        }
+        
+        // 對於其他儲存類型（nas、s3、local），使用 relative_path 格式
+        return $path;
+    }
+
+    /**
+     * 在與給定檔案相同的目錄中尋找最佳 MP4 檔案。
+     * 優先順序：1. 匹配唯一識別碼的 MP4（如果提供了 XML 檔案），2. 最新版本，3. 最小檔案大小。
      *
      * @param string $storageType
      * @param string $filePath
      * @param string $relativePath
-     * @param array<string, mixed>|null $documentFile Optional document file to match unique ID
+     * @param array<string, mixed>|null $documentFile 可選的文檔檔案以匹配唯一識別碼
      * @return string|null
      */
     private function findSmallestMp4InSameDirectory(string $storageType, string $filePath, string $relativePath, ?array $documentFile = null): ?string
@@ -594,26 +644,26 @@ class AnalyzeDocumentCommand extends Command
         try {
             $disk = $this->storageService->getDisk($storageType);
             
-            // Get directory path from file path
+            // 從檔案路徑獲取目錄路徑
             $fileDir = dirname($filePath);
             
             if (!$disk->exists($fileDir)) {
                 return null;
             }
             
-            // Extract unique ID from document file if provided
+            // 如果提供了文檔檔案，則從中提取唯一識別碼
             $targetUniqueId = null;
             if (null !== $documentFile) {
                 $targetUniqueId = $this->extractUniqueIdFromFileName($documentFile['file_name'] ?? '');
             }
             
-            // List all files in the same directory
+            // 列出同目錄中的所有檔案
             $files = $disk->files($fileDir);
             
             $mp4Files = [];
             $matchingMp4Files = [];
             
-            // Collect all MP4 files with their sizes and versions
+            // 收集所有 MP4 檔案及其大小和版本
             foreach ($files as $file) {
                 $extension = strtolower(pathinfo($file, PATHINFO_EXTENSION));
                 if ('mp4' !== $extension) {
@@ -625,10 +675,10 @@ class AnalyzeDocumentCommand extends Command
                     $fileName = basename($file);
                     $fileVersion = $this->storageService->extractFileVersion($fileName);
                     
-                    // Extract version number for sorting (extractFileVersion now returns int directly)
+                    // 提取版本號以進行排序（extractFileVersion 現在直接返回 int）
                     $versionNumber = $fileVersion ?? -1;
                     
-                    // Extract unique ID from MP4 filename
+                    // 從 MP4 檔案名提取唯一識別碼
                     $mp4UniqueId = $this->extractUniqueIdFromFileName($fileName);
                     
                     $mp4Data = [
@@ -642,12 +692,12 @@ class AnalyzeDocumentCommand extends Command
                     
                     $mp4Files[] = $mp4Data;
                     
-                    // If we have a target unique ID and this MP4 matches, add to matching list
+                    // 如果我們有目標唯一識別碼且此 MP4 匹配，則添加到匹配列表
                     if (null !== $targetUniqueId && $mp4UniqueId === $targetUniqueId) {
                         $matchingMp4Files[] = $mp4Data;
                     }
                     } catch (\Exception $e) {
-                        // Skip files that can't be read
+                        // 跳過無法讀取的檔案
                         Log::warning('[AnalyzeDocumentCommand] 無法取得 MP4 檔案大小', [
                             'file' => $file,
                             'error' => $e->getMessage(),
@@ -656,29 +706,39 @@ class AnalyzeDocumentCommand extends Command
                 }
             }
             
-            // If no MP4 files found, return null
+            // 如果未找到 MP4 檔案，返回 null
             if (empty($mp4Files)) {
                 return null;
             }
             
-            // If we have matching MP4 files, prioritize them
+            // 如果我們有匹配的 MP4 檔案，優先處理它們
             $filesToSort = !empty($matchingMp4Files) ? $matchingMp4Files : $mp4Files;
             
-            // Sort by: 1. Version number (descending - latest version first), 2. Size (ascending - smallest first)
+            // 排序方式：1. 版本號（降序 - 最新版本優先），2. 大小（升序 - 最小優先）
             usort($filesToSort, function ($a, $b) {
-                // First compare by version number (higher version first)
+                // 首先按版本號比較（較高版本優先）
                 if ($a['version_number'] !== $b['version_number']) {
                     return $b['version_number'] <=> $a['version_number'];
                 }
-                // If versions are equal (or both are -1), sort by size (smaller first)
+                // 如果版本相等（或兩者都是 -1），按大小排序（較小優先）
                 return $a['size'] <=> $b['size'];
             });
             
             $bestMp4 = $filesToSort[0];
             
-            // Build relative path
-            $mp4Dir = dirname($relativePath);
-            return $mp4Dir . '/' . $bestMp4['name'];
+            // 根據儲存類型構建路徑
+            // 對於 GCS，使用 file_path 格式（相對於 bucket 根目錄的完整路徑）
+            // 對於其他儲存類型，使用 relative_path 格式
+            $storageType = strtolower($this->option('storage'));
+            if ('gcs' === $storageType) {
+                // 使用磁碟上的實際檔案路徑（完整 GCS 路徑）
+                $mp4Dir = dirname($filePath);
+                return ltrim($mp4Dir . '/' . $bestMp4['name'], '/');
+            } else {
+                // 使用相對路徑格式
+                $mp4Dir = dirname($relativePath);
+                return $mp4Dir . '/' . $bestMp4['name'];
+            }
         } catch (\Exception $e) {
             Log::warning('[AnalyzeDocumentCommand] 在同資料夾中尋找最佳 MP4 檔案失敗', [
                 'storage_type' => $storageType,
@@ -691,7 +751,7 @@ class AnalyzeDocumentCommand extends Command
     }
 
     /**
-     * Parse TXT file content to text.
+     * 將 TXT 檔案內容解析為文字。
      *
      * @param string $txtContent
      * @return string
@@ -699,7 +759,7 @@ class AnalyzeDocumentCommand extends Command
     private function parseTxtToText(string $txtContent): string
     {
         try {
-            // Clean up whitespace but preserve line breaks
+            // 清理空白字元但保留換行
             $text = preg_replace('/[ \t]+/', ' ', $txtContent);
             $text = preg_replace('/\n\s*\n+/', "\n\n", $text);
             $text = trim($text);
@@ -714,19 +774,19 @@ class AnalyzeDocumentCommand extends Command
     }
 
     /**
-     * Filter document files to select the best XML file in each directory.
-     * Priority: Find the best MP4 (by version > size), then select XML with matching unique ID.
-     * If no matching XML found, select XML with highest version.
+     * 過濾文檔檔案以選擇每個目錄中的最佳 XML 檔案。
+     * 優先順序：尋找最佳 MP4（按版本 > 大小），然後選擇匹配唯一識別碼的 XML。
+     * 如果未找到匹配的 XML，選擇版本最高的 XML。
      *
      * @param array<int, array<string, mixed>> $documentFiles
      * @return array<int, array<string, mixed>>
      */
     private function filterLatestVersionDocuments(array $documentFiles): array
     {
-        // Group by directory (folder)
+        // 按目錄（資料夾）分組
         $groupedByDir = [];
         foreach ($documentFiles as $file) {
-            // Extract directory from relative_path or file_path
+            // 從 relative_path 或 file_path 提取目錄
             $dirPath = dirname($file['relative_path'] ?? $file['file_path'] ?? '');
             if (!isset($groupedByDir[$dirPath])) {
                 $groupedByDir[$dirPath] = [];
@@ -737,17 +797,17 @@ class AnalyzeDocumentCommand extends Command
         $filtered = [];
 
         foreach ($groupedByDir as $dirPath => $files) {
-            // If only one file, keep it
+            // 如果只有一個檔案，保留它
             if (1 === count($files)) {
                 $filtered[] = $files[0];
                 continue;
             }
 
-            // Step 1: Find the best MP4 file in this directory
+            // 步驟 1：在此目錄中尋找最佳 MP4 檔案
             $bestMp4UniqueId = $this->findBestMp4UniqueIdInDirectory($dirPath, $files);
 
-            // Step 2: Select XML file matching the best MP4's unique ID
-            // If no matching XML, select XML with highest version
+            // 步驟 2：選擇匹配最佳 MP4 唯一識別碼的 XML 檔案
+            // 如果沒有匹配的 XML，選擇版本最高的 XML
             $selectedXml = $this->selectBestXmlForDirectory($files, $bestMp4UniqueId);
 
             if (null !== $selectedXml) {
@@ -759,8 +819,8 @@ class AnalyzeDocumentCommand extends Command
     }
 
     /**
-     * Find the best MP4 file in a directory and return its unique ID.
-     * Priority: 1. Highest version number, 2. Smallest file size.
+     * 在目錄中尋找最佳 MP4 檔案並返回其唯一識別碼。
+     * 優先順序：1. 最高版本號，2. 最小檔案大小。
      *
      * @param string $dirPath
      * @param array<int, array<string, mixed>> $files
@@ -771,7 +831,7 @@ class AnalyzeDocumentCommand extends Command
         $storageType = strtolower($this->option('storage'));
         $disk = $this->storageService->getDisk($storageType);
 
-        // Get the actual directory path from the first file
+        // 從第一個檔案獲取實際目錄路徑
         $firstFile = $files[0];
         $actualDirPath = dirname($firstFile['file_path'] ?? $firstFile['relative_path'] ?? '');
 
@@ -779,7 +839,7 @@ class AnalyzeDocumentCommand extends Command
             return null;
         }
 
-        // List all MP4 files in the directory
+        // 列出目錄中的所有 MP4 檔案
         $allFiles = $disk->files($actualDirPath);
         $mp4Files = [];
 
@@ -794,7 +854,7 @@ class AnalyzeDocumentCommand extends Command
                 $fileName = basename($file);
                 $fileVersion = $this->storageService->extractFileVersion($fileName);
 
-                // Extract unique ID from filename
+                // 從檔案名提取唯一識別碼
                 $uniqueId = $this->extractUniqueIdFromFileName($fileName);
 
                 if (null !== $uniqueId) {
@@ -818,7 +878,7 @@ class AnalyzeDocumentCommand extends Command
             return null;
         }
 
-        // Sort by: 1. Version (descending), 2. Size (ascending)
+        // 排序方式：1. 版本（降序），2. 大小（升序）
         usort($mp4Files, function ($a, $b) {
             if ($a['version'] !== $b['version']) {
                 return $b['version'] <=> $a['version'];
@@ -830,8 +890,8 @@ class AnalyzeDocumentCommand extends Command
     }
 
     /**
-     * Select the best XML file for a directory.
-     * Priority: 1. XML matching the best MP4's unique ID (highest version), 2. XML with highest version.
+     * 為目錄選擇最佳 XML 檔案。
+     * 優先順序：1. 匹配最佳 MP4 唯一識別碼的 XML（最高版本），2. 版本最高的 XML。
      *
      * @param array<int, array<string, mixed>> $files
      * @param string|null $bestMp4UniqueId
@@ -839,7 +899,7 @@ class AnalyzeDocumentCommand extends Command
      */
     private function selectBestXmlForDirectory(array $files, ?string $bestMp4UniqueId): ?array
     {
-        // Separate XML files
+        // 分離 XML 檔案
         $xmlFiles = [];
         foreach ($files as $file) {
             $extension = strtolower($file['extension'] ?? pathinfo($file['file_path'] ?? '', PATHINFO_EXTENSION));
@@ -849,11 +909,11 @@ class AnalyzeDocumentCommand extends Command
         }
 
         if (empty($xmlFiles)) {
-            // No XML files, return first file (shouldn't happen, but handle gracefully)
+            // 沒有 XML 檔案，返回第一個檔案（不應該發生，但優雅處理）
             return $files[0] ?? null;
         }
 
-        // If we have a best MP4 unique ID, try to find matching XML
+        // 如果我們有最佳 MP4 唯一識別碼，嘗試尋找匹配的 XML
         if (null !== $bestMp4UniqueId) {
             $matchingXmls = [];
             foreach ($xmlFiles as $xmlFile) {
@@ -864,7 +924,7 @@ class AnalyzeDocumentCommand extends Command
             }
 
             if (!empty($matchingXmls)) {
-                // Select the highest version among matching XMLs
+                // 在匹配的 XML 中選擇最高版本
                 usort($matchingXmls, function ($a, $b) {
                     $versionA = $a['file_version'] ?? -1;
                     $versionB = $b['file_version'] ?? -1;
@@ -874,7 +934,7 @@ class AnalyzeDocumentCommand extends Command
             }
         }
 
-        // No matching XML found, select XML with highest version
+        // 未找到匹配的 XML，選擇版本最高的 XML
         usort($xmlFiles, function ($a, $b) {
             $versionA = $a['file_version'] ?? -1;
             $versionB = $b['file_version'] ?? -1;
@@ -885,14 +945,14 @@ class AnalyzeDocumentCommand extends Command
     }
 
     /**
-     * Extract unique ID from filename.
+     * 從檔案名提取唯一識別碼。
      *
      * @param string $fileName
      * @return string|null
      */
     private function extractUniqueIdFromFileName(string $fileName): ?string
     {
-        // Pattern: CNNA-ST1-xxxxxxxxxxxxxxxx (16 hex digits)
+        // 模式：CNNA-ST1-xxxxxxxxxxxxxxxx（16 個十六進位數字）
         if (preg_match('/CNNA-ST1-([a-f0-9]{16})/i', $fileName, $matches)) {
             return 'CNNA-ST1-' . strtoupper($matches[1]);
         }

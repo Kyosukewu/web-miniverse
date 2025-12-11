@@ -693,5 +693,47 @@ class StorageService
         }
     }
 
+    /**
+     * Generate URL for GCS file.
+     * Uses configured GCS domain if available, otherwise falls back to Storage::url().
+     *
+     * @param string $filePath File path in GCS (relative to bucket root)
+     * @param string|null $sourceName Optional source name to get source-specific domain
+     * @return string|null
+     */
+    public function getGcsUrl(string $filePath, ?string $sourceName = null): ?string
+    {
+        try {
+            // If source name is provided, check for source-specific domain
+            if (null !== $sourceName) {
+                $sourceConfig = config("sources.{$sourceName}");
+                if (isset($sourceConfig['gcs_domain']) && !empty($sourceConfig['gcs_domain'])) {
+                    $domain = rtrim($sourceConfig['gcs_domain'], '/');
+                    $path = ltrim($filePath, '/');
+                    return "{$domain}/{$path}";
+                }
+            }
+
+            // Fallback to filesystem config
+            $gcsConfig = config('filesystems.disks.gcs');
+            if (isset($gcsConfig['url']) && !empty($gcsConfig['url'])) {
+                $domain = rtrim($gcsConfig['url'], '/');
+                $path = ltrim($filePath, '/');
+                return "{$domain}/{$path}";
+            }
+
+            // Last resort: use Storage facade (may generate default GCS URL)
+            $disk = $this->getDisk('gcs');
+            return $disk->url($filePath);
+        } catch (\Exception $e) {
+            Log::error('[StorageService] 生成 GCS URL 失敗', [
+                'file_path' => $filePath,
+                'source_name' => $sourceName,
+                'error' => $e->getMessage(),
+            ]);
+            return null;
+        }
+    }
+
 }
 

@@ -17,6 +17,8 @@ return [
         'source_path' => env('CNN_SOURCE_PATH', '/mnt/PushDownloads'),
         // GCS 路徑前綴（檔案移動到此路徑下）
         'gcs_path' => env('CNN_GCS_PATH', 'cnn/'),
+        // GCS 資源存取 domain（用於生成檔案存取 URL）
+        'gcs_domain' => env('CNN_GCS_DOMAIN', null),
         // 版本檢查配置
         'version_check_enabled' => true, // CNN 支援版本號檢查 (_0, _1, _2)
     ],

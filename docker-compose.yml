@@ -39,6 +39,8 @@ services:
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       # YouTube API（可選）
       - YOUTUBE_API_KEY=${YOUTUBE_API_KEY:-}
+      # 排程開關（設為 true 啟用排程，false 或未設置則停用）
+      - SCHEDULER_ENABLED=${SCHEDULER_ENABLED:-false}
     depends_on:
       - db
     networks:

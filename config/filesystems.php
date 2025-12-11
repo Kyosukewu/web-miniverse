@@ -63,6 +63,7 @@ return [
             'bucket' => env('GOOGLE_CLOUD_STORAGE_BUCKET'),
             'path_prefix' => env('GOOGLE_CLOUD_STORAGE_PATH_PREFIX', ''),
             'storage_api_uri' => env('GOOGLE_CLOUD_STORAGE_API_URI'),
+            'url' => env('GOOGLE_CLOUD_STORAGE_URL', null), // GCS 資源存取 domain
             'visibility' => 'public',
             'throw' => false,
         ],

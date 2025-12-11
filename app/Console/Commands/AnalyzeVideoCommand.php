@@ -15,7 +15,7 @@ use Illuminate\Support\Facades\Log;
 class AnalyzeVideoCommand extends Command
 {
     /**
-     * The name and signature of the console command.
+     * 控制台命令的名稱和簽名。
      *
      * @var string
      */
@@ -26,14 +26,14 @@ class AnalyzeVideoCommand extends Command
                             {--prompt-version= : Prompt 版本 (可選)}';
 
     /**
-     * The console command description.
+     * 控制台命令描述。
      *
      * @var string
      */
     protected $description = '從資料庫查詢未完成分析的影片並進行分析';
 
     /**
-     * Create a new command instance.
+     * 建立新的命令實例。
      */
     public function __construct(
         private AnalyzeService $analyzeService,
@@ -45,7 +45,7 @@ class AnalyzeVideoCommand extends Command
     }
 
     /**
-     * Execute the console command.
+     * 執行控制台命令。
      *
      * @return int
      */
@@ -59,13 +59,13 @@ class AnalyzeVideoCommand extends Command
         $sourceFilter = $sourceName ? "來源: {$sourceName}, " : '';
         $this->info("開始查詢未完成分析的影片 ({$sourceFilter}儲存空間: {$storageType})");
 
-        // Include completed videos for version check if source supports it
+        // 如果來源支援，則包含已完成影片以進行版本檢查
         $includeCompletedForVersionCheck = false;
         if (null !== $sourceName) {
             $includeCompletedForVersionCheck = $this->versionChecker->shouldIncludeCompletedForVersionCheck($sourceName);
         }
 
-        // Query incomplete videos from database
+        // 從資料庫查詢未完成的影片
         $videos = $this->videoRepository->getIncompleteVideos($sourceName, $limit, $includeCompletedForVersionCheck);
 
         if ($videos->isEmpty()) {
@@ -75,7 +75,7 @@ class AnalyzeVideoCommand extends Command
 
         $this->info("找到 " . $videos->count() . " 個需要分析的影片");
 
-        // Analyze videos
+        // 分析影片
         $processedCount = 0;
         $skippedCount = 0;
         $errorCount = 0;
@@ -88,7 +88,7 @@ class AnalyzeVideoCommand extends Command
                 break;
             }
 
-            // Skip if nas_path is empty
+            // 如果 nas_path 為空則跳過
             if (empty($video->nas_path)) {
                 $this->warn("\n跳過缺少 nas_path 的影片: {$video->source_id}");
                 $skippedCount++;
@@ -97,28 +97,28 @@ class AnalyzeVideoCommand extends Command
             }
 
             try {
-                // Check if version checking is enabled for this source
+                // 檢查此來源是否啟用版本檢查
                 $versionCheckEnabled = $this->versionChecker->shouldIncludeCompletedForVersionCheck($video->source_name);
                 
-                // Check if there's a newer version of the MP4 file in the same directory
-                // Only do this for sources that support version checking (e.g., CNN)
+                // 檢查同目錄中是否有更新版本的 MP4 檔案
+                // 僅對支援版本檢查的來源執行此操作（例如 CNN）
                 $bestMp4Path = null;
                 $mp4Version = null;
                 
                 if ($versionCheckEnabled) {
                     $bestMp4Path = $this->findBestMp4InDirectory($storageType, $video->nas_path);
                     
-                    // Extract MP4 version from the best file
+                    // 從最佳檔案提取 MP4 版本
                     if (null !== $bestMp4Path) {
                         $mp4FileName = basename($bestMp4Path);
                         $mp4Version = $this->storageService->extractFileVersion($mp4FileName) ?? 0;
                     } else {
-                        // Extract from current nas_path
+                        // 從當前 nas_path 提取
                         $currentFileName = basename($video->nas_path);
                         $mp4Version = $this->storageService->extractFileVersion($currentFileName) ?? 0;
                     }
                     
-                    // Update nas_path and mp4_file_version if a better version was found
+                    // 如果找到更好的版本，更新 nas_path 和 mp4_file_version
                     if (null !== $bestMp4Path && $bestMp4Path !== $video->nas_path) {
                         $this->videoRepository->update($video->id, [
                             'nas_path' => $bestMp4Path,
@@ -127,7 +127,7 @@ class AnalyzeVideoCommand extends Command
                         $this->line("\n更新 nas_path 為最新版本: {$bestMp4Path} (版本: {$mp4Version})");
                         $video->nas_path = $bestMp4Path;
                     } else {
-                        // Update mp4_file_version even if path didn't change (to keep it in sync)
+                        // 即使路徑未變更，也更新 mp4_file_version（以保持同步）
                         if (null !== $mp4Version && $video->mp4_file_version !== $mp4Version) {
                             $this->videoRepository->update($video->id, [
                                 'mp4_file_version' => $mp4Version,
@@ -136,7 +136,7 @@ class AnalyzeVideoCommand extends Command
                     }
                 }
 
-                // Check if file version has been updated (only for sources that support version checking)
+                // 檢查檔案版本是否已更新（僅適用於支援版本檢查的來源）
                 if ($versionCheckEnabled && AnalysisStatus::COMPLETED === $video->analysis_status) {
                     $versionCheck = $this->versionChecker->shouldReanalyze(
                         $video->source_name,
@@ -147,7 +147,7 @@ class AnalyzeVideoCommand extends Command
                     );
 
                     if (!$versionCheck['should_reanalyze']) {
-                        // Version hasn't changed, skip
+                        // 版本未變更，跳過
                         $this->line("\n跳過版本未變更的已完成影片: {$video->source_id}");
                         $skippedCount++;
                         $progressBar->advance();
@@ -157,33 +157,33 @@ class AnalyzeVideoCommand extends Command
                     $this->line("\n{$versionCheck['reason']}: {$video->source_id}，將重新分析");
                 }
 
-                // Update status to processing
+                // 將狀態更新為處理中
                 $this->videoRepository->updateAnalysisStatus(
                     $video->id,
                     AnalysisStatus::PROCESSING,
                     new \DateTime()
                 );
 
-                // Get video file path from nas_path
+                // 從 nas_path 獲取影片檔案路徑
                 $videoFilePath = $this->storageService->getVideoFilePath($storageType, $video->nas_path);
 
                 if (null === $videoFilePath) {
                     throw new \Exception("無法取得影片檔案路徑: {$video->nas_path}");
                 }
 
-                // For local storage types, check if file exists
+                // 對於本地儲存類型，檢查檔案是否存在
                 if (in_array($storageType, ['nas', 'local', 'storage'], true)) {
                     if (!file_exists($videoFilePath)) {
                         throw new \Exception("影片檔案不存在: {$videoFilePath} (nas_path: {$video->nas_path})");
                     }
                 }
 
-                // Check file size - Gemini API supports up to 300MB
+                // 檢查檔案大小 - Gemini API 最多支援 300MB
                 if (file_exists($videoFilePath)) {
                     $fileSize = filesize($videoFilePath);
                     $fileSizeMB = round($fileSize / 1024 / 1024, 2);
                     
-                    // Gemini API limit: 300MB
+                    // Gemini API 限制：300MB
                     $maxFileSizeMB = 300;
                     
                     if ($fileSizeMB > $maxFileSizeMB) {
@@ -197,14 +197,14 @@ class AnalyzeVideoCommand extends Command
                             'max_size_mb' => $maxFileSizeMB,
                         ]);
                         
-                        // Update status to failed with error message
+                        // 將狀態更新為失敗並附上錯誤訊息
                         $this->videoRepository->updateAnalysisStatus(
                             $video->id,
                             AnalysisStatus::VIDEO_ANALYSIS_FAILED,
                             new \DateTime()
                         );
                         
-                        // Save error message to analysis result
+                        // 將錯誤訊息保存到分析結果
                         $this->analyzeService->saveAnalysisResult(
                             $video->id,
                             [
@@ -219,32 +219,32 @@ class AnalyzeVideoCommand extends Command
                         continue;
                     }
                     
-                    // Estimate memory needed: file size + base64 encoding overhead (~33%) + JSON payload overhead
-                    $estimatedMemoryMB = $fileSizeMB * 2.5; // Conservative estimate
+                    // 估算所需記憶體：檔案大小 + base64 編碼開銷（約 33%）+ JSON 負載開銷
+                    $estimatedMemoryMB = $fileSizeMB * 2.5; // 保守估算
                     
                     if ($estimatedMemoryMB > 400) {
-                        // Increase memory limit for large files (set to at least 2GB or 3x file size)
+                        // 為大檔案增加記憶體限制（設為至少 2GB 或 3 倍檔案大小）
                         $newMemoryLimit = max(2048, (int) ceil($estimatedMemoryMB * 1.5));
                         ini_set('memory_limit', $newMemoryLimit . 'M');
                         $this->line("\n調整記憶體限制為 {$newMemoryLimit}MB (檔案大小: {$fileSizeMB}MB)");
                     }
                 }
 
-                // Execute video analysis
+                // 執行影片分析
                 $analysisResult = $this->analyzeService->executeVideoAnalysis(
                     $video->id,
                     $promptVersion,
                     $videoFilePath
                 );
 
-                // Save analysis result
+                // 保存分析結果
                 $this->analyzeService->saveAnalysisResult(
                     $video->id,
                     $analysisResult,
                     $analysisResult['_prompt_version'] ?? $promptVersion ?? 'v6'
                 );
 
-                // Free memory after processing
+                // 處理後釋放記憶體
                 unset($analysisResult);
                 if (function_exists('gc_collect_cycles')) {
                     gc_collect_cycles();
@@ -261,7 +261,7 @@ class AnalyzeVideoCommand extends Command
                     'error' => $e->getMessage(),
                 ]);
 
-                // Update status to failed
+                // 將狀態更新為失敗
                 $this->videoRepository->updateAnalysisStatus(
                     $video->id,
                     AnalysisStatus::VIDEO_ANALYSIS_FAILED,
@@ -277,7 +277,7 @@ class AnalyzeVideoCommand extends Command
         $progressBar->finish();
         $this->newLine(2);
 
-        // Summary
+        // 摘要
         $this->info("分析完成！");
         $this->table(
             ['狀態', '數量'],
@@ -292,19 +292,19 @@ class AnalyzeVideoCommand extends Command
     }
 
     /**
-     * Find the best MP4 file in the same directory as the given nas_path.
-     * Priority: 1. Latest version (highest version number), 2. Smallest file size.
+     * 在與給定 nas_path 相同的目錄中尋找最佳 MP4 檔案。
+     * 優先順序：1. 最新版本（最高版本號），2. 最小檔案大小。
      *
      * @param string $storageType
      * @param string $nasPath
-     * @return string|null Returns the best nas_path, or null if no better file found
+     * @return string|null 返回最佳 nas_path，如果未找到更好的檔案則返回 null
      */
     private function findBestMp4InDirectory(string $storageType, string $nasPath): ?string
     {
         try {
             $disk = $this->storageService->getDisk($storageType);
             
-            // Get directory path from nas_path
+            // 從 nas_path 獲取目錄路徑
             $fileDir = dirname($nasPath);
             $currentFileName = basename($nasPath);
             
@@ -312,12 +312,12 @@ class AnalyzeVideoCommand extends Command
                 return null;
             }
             
-            // List all files in the same directory
+            // 列出同目錄中的所有檔案
             $files = $disk->files($fileDir);
             
             $mp4Files = [];
             
-            // Collect all MP4 files with their sizes and versions
+            // 收集所有 MP4 檔案及其大小和版本
             foreach ($files as $file) {
                 $extension = strtolower(pathinfo($file, PATHINFO_EXTENSION));
                 if ('mp4' === $extension) {
@@ -326,7 +326,7 @@ class AnalyzeVideoCommand extends Command
                         $fileName = basename($file);
                         $fileVersion = $this->storageService->extractFileVersion($fileName);
                         
-                        // Extract version number for sorting (extractFileVersion now returns int directly)
+                        // 提取版本號以進行排序（extractFileVersion 現在直接返回 int）
                         $versionNumber = $fileVersion ?? -1;
                         
                         $mp4Files[] = [
@@ -337,7 +337,7 @@ class AnalyzeVideoCommand extends Command
                             'version_number' => $versionNumber,
                         ];
                     } catch (\Exception $e) {
-                        // Skip files that can't be read
+                        // 跳過無法讀取的檔案
                         Log::warning('[AnalyzeVideoCommand] 無法取得 MP4 檔案資訊', [
                             'file' => $file,
                             'error' => $e->getMessage(),
@@ -347,29 +347,29 @@ class AnalyzeVideoCommand extends Command
                 }
             }
             
-            // If no MP4 files found, return null
+            // 如果未找到 MP4 檔案，返回 null
             if (empty($mp4Files)) {
                 return null;
             }
             
-            // Sort by: 1. Version number (descending - latest version first), 2. Size (ascending - smallest first)
+            // 排序方式：1. 版本號（降序 - 最新版本優先），2. 大小（升序 - 最小優先）
             usort($mp4Files, function ($a, $b) {
-                // First compare by version number (higher version first)
+                // 首先按版本號比較（較高版本優先）
                 if ($a['version_number'] !== $b['version_number']) {
                     return $b['version_number'] <=> $a['version_number'];
                 }
-                // If versions are equal (or both are -1), sort by size (smaller first)
+                // 如果版本相等（或兩者都是 -1），按大小排序（較小優先）
                 return $a['size'] <=> $b['size'];
             });
             
             $bestMp4 = $mp4Files[0];
             
-            // If the best file is the same as current, return null (no update needed)
+            // 如果最佳檔案與當前檔案相同，返回 null（無需更新）
             if ($bestMp4['name'] === $currentFileName) {
                 return null;
             }
             
-            // Build relative path (nas_path format)
+            // 構建相對路徑（nas_path 格式）
             $mp4Dir = dirname($nasPath);
             return $mp4Dir . '/' . $bestMp4['name'];
         } catch (\Exception $e) {
