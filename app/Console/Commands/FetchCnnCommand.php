@@ -65,6 +65,9 @@ class FetchCnnCommand extends Command
      */
     public function handle(): int
     {
+        // 增加記憶體限制（處理大量檔案時需要）
+        ini_set('memory_limit', '2048M');
+        
         $batchSize = (int) $this->option('batch-size');
         $dryRun = $this->option('dry-run');
         $keepLocal = $this->option('keep-local');

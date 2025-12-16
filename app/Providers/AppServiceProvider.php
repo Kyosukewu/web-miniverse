@@ -37,8 +37,17 @@ class AppServiceProvider extends ServiceProvider
             }
             
             // 如果提供了 key_file 且檔案存在，則使用它；否則使用默認認證
-            if (!empty($config['key_file']) && file_exists($config['key_file'])) {
-                $clientConfig['keyFilePath'] = $config['key_file'];
+            // 注意：如果 key_file 路徑不存在，不要設定 keyFilePath，讓 StorageClient 使用默認認證
+            if (!empty($config['key_file'])) {
+                // 檢查檔案是否存在，如果不存在則記錄警告但不設定 keyFilePath
+                if (file_exists($config['key_file'])) {
+                    $clientConfig['keyFilePath'] = $config['key_file'];
+                } else {
+                    // 檔案不存在，記錄警告但繼續使用默認認證
+                    \Log::warning('[AppServiceProvider] GCS key_file 不存在，將使用默認認證', [
+                        'key_file' => $config['key_file'],
+                    ]);
+                }
             }
             
             // 如果沒有提供任何認證資訊，StorageClient 會使用默認認證
