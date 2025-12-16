@@ -12,6 +12,8 @@ services:
       - ./storage:/var/www/html/web-miniverse/storage
       - ./bootstrap/cache:/var/www/html/web-miniverse/bootstrap/cache
       - /mnt/PushDownloads:/mnt/PushDownloads:rw
+      # 掛載 gcloud 認證配置（讓容器內的 PHP 可以使用主機的 GCS 認證）
+      - ~/.config/gcloud:/root/.config/gcloud:ro
     environment:
       - APP_ENV=${APP_ENV:-production}
       - APP_DEBUG=${APP_DEBUG:-false}
