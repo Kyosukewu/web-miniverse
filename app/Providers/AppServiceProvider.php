@@ -55,7 +55,17 @@ class AppServiceProvider extends ServiceProvider
             $storageClient = new StorageClient($clientConfig);
 
             $bucket = $storageClient->bucket($config['bucket']);
-            $adapter = new GoogleCloudStorageAdapter($bucket, $config['path_prefix'] ?? '');
+            
+            // 當 bucket 啟用 uniform bucket-level access 時，需要禁用 ACL
+            // 創建適配器時不設定 visibility，避免使用 legacy ACL
+            $adapterConfig = [];
+            if (isset($config['visibility']) && null !== $config['visibility']) {
+                // 只有在明確設定 visibility 且不為 null 時才使用
+                // 但對於 uniform bucket-level access，應該設為 null
+                $adapterConfig['visibility'] = $config['visibility'];
+            }
+            
+            $adapter = new GoogleCloudStorageAdapter($bucket, $config['path_prefix'] ?? '', $adapterConfig);
 
             return new \Illuminate\Filesystem\FilesystemAdapter(
                 new Filesystem($adapter, $config),

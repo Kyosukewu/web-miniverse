@@ -56,6 +56,12 @@ return [
             'throw' => false,
         ],
 
+        'nas' => [
+            'driver' => 'local',
+            'root' => env('NAS_VIDEO_PATH', storage_path('app/videos')),
+            'throw' => false,
+        ],
+
         'gcs' => [
             'driver' => 'gcs',
             // project_id 和 key_file 為可選項
@@ -67,7 +73,9 @@ return [
             'path_prefix' => env('GOOGLE_CLOUD_STORAGE_PATH_PREFIX', ''),
             'storage_api_uri' => env('GOOGLE_CLOUD_STORAGE_API_URI'),
             'url' => env('GOOGLE_CLOUD_STORAGE_URL', null), // GCS 資源存取 domain
-            'visibility' => 'public',
+            // 當 bucket 啟用 uniform bucket-level access 時，不能使用 legacy ACL
+            // 設定為 null 或移除 visibility 以禁用 ACL
+            'visibility' => null,
             'throw' => false,
         ],
     ],
