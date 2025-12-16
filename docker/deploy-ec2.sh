@@ -103,12 +103,20 @@ cd $PROJECT_DIR
 # 如果 .git 目錄存在，表示已經 clone 過，執行 pull
 if [ -d ".git" ]; then
     echo -e "${YELLOW}專案已存在，更新 remote URL 並執行 git pull...${NC}"
+    # 修復 Git 所有權問題（Git 2.35.2+ 安全檢查）
+    CURRENT_USER=$(whoami)
+    git config --global --add safe.directory $PROJECT_DIR 2>/dev/null || true
+    sudo chown -R $CURRENT_USER:$CURRENT_USER .git 2>/dev/null || true
     # 更新 remote URL 以包含 token
     git remote set-url origin "$GITHUB_REPO"
     git pull origin main || git pull origin master
 else
     echo -e "${YELLOW}正在 clone 專案...${NC}"
     git clone $GITHUB_REPO .
+    # 設定 safe.directory 以避免所有權檢查錯誤
+    CURRENT_USER=$(whoami)
+    git config --global --add safe.directory $PROJECT_DIR 2>/dev/null || true
+    sudo chown -R $CURRENT_USER:$CURRENT_USER .git 2>/dev/null || true
 fi
 
 echo -e "${GREEN}✓ 程式碼更新完成${NC}"
@@ -222,6 +230,13 @@ chmod -R 755 $PROJECT_DIR
 chmod -R 775 $PROJECT_DIR/storage
 chmod -R 775 $PROJECT_DIR/bootstrap/cache
 echo -e "${GREEN}✓ 權限設定完成${NC}"
+
+# 7-1. 清理 Docker 資源（避免舊資源堆積）
+echo -e "\n${GREEN}🧹 清理未使用的 Docker 資源...${NC}"
+echo -e "${YELLOW}正在清理未使用的容器、網路和懸空映像...${NC}"
+# 清理未使用的容器、網路和懸空映像（不刪除卷，避免誤刪資料）
+docker system prune -f
+echo -e "${GREEN}✓ Docker 資源清理完成${NC}"
 
 # 8. 構建 Docker 映像檔
 echo -e "\n${GREEN}🔨 構建 Docker 映像檔...${NC}"

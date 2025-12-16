@@ -51,8 +51,33 @@ BACKUP_FILE="$BACKUP_DIR/backup_$(date +%Y%m%d_%H%M%S).tar.gz"
 tar -czf $BACKUP_FILE --exclude='.git' --exclude='node_modules' --exclude='vendor' $PROJECT_DIR 2>/dev/null || true
 echo -e "${GREEN}✓ 備份完成: ${BACKUP_FILE}${NC}"
 
+# 清理舊備份，只保留最近的一個
+echo -e "\n${GREEN}🧹 清理舊備份檔案（只保留最近一個）...${NC}"
+# 找出所有備份檔案，按時間排序，保留最新的，刪除其他的
+BACKUP_COUNT=$(ls -1 $BACKUP_DIR/backup_*.tar.gz 2>/dev/null | wc -l)
+if [ "$BACKUP_COUNT" -gt 1 ]; then
+    # 按修改時間排序，保留最新的，刪除其他
+    ls -t $BACKUP_DIR/backup_*.tar.gz 2>/dev/null | tail -n +2 | xargs -r rm -f
+    DELETED_COUNT=$((BACKUP_COUNT - 1))
+    echo -e "${GREEN}✓ 已刪除 ${DELETED_COUNT} 個舊備份，保留最新備份${NC}"
+else
+    echo -e "${GREEN}✓ 備份檔案數量正常，無需清理${NC}"
+fi
+
 # 2. 拉取最新程式碼
 echo -e "\n${GREEN}📥 拉取最新程式碼...${NC}"
+
+# 修復 Git 所有權問題（Git 2.35.2+ 安全檢查）
+echo -e "${YELLOW}🔧 檢查並修復 Git 所有權問題...${NC}"
+CURRENT_USER=$(whoami)
+if [ -d ".git" ]; then
+    # 設定 safe.directory 以避免所有權檢查錯誤
+    git config --global --add safe.directory $PROJECT_DIR 2>/dev/null || true
+    # 確保 .git 目錄的所有權正確
+    sudo chown -R $CURRENT_USER:$CURRENT_USER .git 2>/dev/null || true
+    echo -e "${GREEN}✓ Git 所有權問題已處理${NC}"
+fi
+
 git fetch origin
 
 # 檢查當前分支
@@ -95,7 +120,14 @@ if [ ! -f ".env" ]; then
     fi
 fi
 
-# 4. 重新構建容器（如果有 Dockerfile 變更）
+# 4. 清理 Docker 資源（避免舊資源堆積）
+echo -e "\n${GREEN}🧹 清理未使用的 Docker 資源...${NC}"
+echo -e "${YELLOW}正在清理未使用的容器、網路和懸空映像...${NC}"
+# 清理未使用的容器、網路和懸空映像（不刪除卷，避免誤刪資料）
+docker system prune -f
+echo -e "${GREEN}✓ Docker 資源清理完成${NC}"
+
+# 5. 重新構建容器（如果有 Dockerfile 變更）
 echo -e "\n${GREEN}🔨 檢查是否需要重新構建容器...${NC}"
 if git diff HEAD@{1} HEAD --name-only | grep -qE "(Dockerfile|docker-compose.yml|docker/)" || [ "$1" == "--rebuild" ]; then
     echo -e "${YELLOW}偵測到 Docker 相關變更，重新構建容器...${NC}"
@@ -105,17 +137,17 @@ else
     echo -e "${GREEN}✓ 無 Docker 相關變更，跳過構建${NC}"
 fi
 
-# 5. 重啟容器
+# 6. 重啟容器
 echo -e "\n${GREEN}🔄 重啟容器...${NC}"
 docker compose down
 docker compose up -d
 echo -e "${GREEN}✓ 容器重啟完成${NC}"
 
-# 6. 等待容器啟動
+# 7. 等待容器啟動
 echo -e "\n${GREEN}⏳ 等待容器啟動...${NC}"
 sleep 10
 
-# 7. 執行 Laravel 維護任務
+# 8. 執行 Laravel 維護任務
 echo -e "\n${GREEN}⚙️  執行 Laravel 維護任務...${NC}"
 docker compose exec -T app composer install --no-interaction --optimize-autoloader --no-dev || true
 docker compose exec -T app php artisan migrate --force || true
@@ -123,11 +155,11 @@ docker compose exec -T app php artisan config:clear || true
 docker compose exec -T app php artisan cache:clear || true
 echo -e "${GREEN}✓ 維護任務完成${NC}"
 
-# 8. 檢查容器狀態
+# 9. 檢查容器狀態
 echo -e "\n${GREEN}📊 檢查容器狀態...${NC}"
 docker compose ps
 
-# 9. 檢查排程任務
+# 10. 檢查排程任務
 echo -e "\n${GREEN}📅 檢查排程任務狀態...${NC}"
 docker compose exec -T app ps aux | grep -E "(schedule|supervisord)" | grep -v grep || echo "排程任務檢查"
 
