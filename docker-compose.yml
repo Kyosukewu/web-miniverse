@@ -101,6 +101,8 @@ services:
       PMA_PASSWORD: ${DB_PASSWORD:-root}
       MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-root}
       UPLOAD_LIMIT: 300M
+      # 設定 phpMyAdmin 在子路徑下運行
+      PMA_ABSOLUTE_URI: /phpmyadmin/
     depends_on:
       - db
     networks:
