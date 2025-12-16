@@ -7,6 +7,7 @@ use Illuminate\Pagination\Paginator;
 use Illuminate\Support\Facades\Storage;
 use League\Flysystem\Filesystem;
 use League\Flysystem\GoogleCloudStorage\GoogleCloudStorageAdapter;
+use League\Flysystem\GoogleCloudStorage\UniformBucketLevelAccessVisibility;
 use Google\Cloud\Storage\StorageClient;
 
 class AppServiceProvider extends ServiceProvider
@@ -56,16 +57,9 @@ class AppServiceProvider extends ServiceProvider
 
             $bucket = $storageClient->bucket($config['bucket']);
             
-            // 當 bucket 啟用 uniform bucket-level access 時，需要禁用 ACL
-            // GoogleCloudStorageAdapter 的構造函數：
-            // __construct(BucketInterface $bucket, string $pathPrefix = '', ?VisibilityHandler $visibilityHandler = null)
-            // 當 visibility 為 null 時，傳入 null 作為 VisibilityHandler，這樣就不會使用 ACL
-            $visibilityHandler = null;
-            if (isset($config['visibility']) && null !== $config['visibility']) {
-                // 如果需要設定 visibility，創建 VisibilityHandler
-                // 但對於 uniform bucket-level access，應該設為 null
-                $visibilityHandler = null; // 強制設為 null 以禁用 ACL
-            }
+            // 當 bucket 啟用 uniform bucket-level access 時，需要使用 UniformBucketLevelAccessVisibility
+            // 這個類別會返回 'noPredefinedVisibility'，避免使用 legacy ACL
+            $visibilityHandler = new UniformBucketLevelAccessVisibility();
             
             $adapter = new GoogleCloudStorageAdapter($bucket, $config['path_prefix'] ?? '', $visibilityHandler);
 
