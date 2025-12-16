@@ -104,10 +104,10 @@ class AnalyzeDocumentCommand extends Command
 
                 // 根據檔案類型解析內容
                 if ('xml' === $fileExtension) {
-                // 在解析前從 CNN XML (objPaths) 提取 MP4 檔案路徑
+                    // 在解析前從 CNN XML (objPaths) 提取 MP4 檔案路徑
                     $mp4FilePaths = $this->extractMp4PathsFromXml($fileContent, $documentFile);
 
-                // 將 XML 解析為文字內容
+                    // 將 XML 解析為文字內容
                     $textContent = $this->parseXmlToText($fileContent);
                 } elseif ('txt' === $fileExtension) {
                     // 解析 TXT 檔案內容
@@ -167,7 +167,7 @@ class AnalyzeDocumentCommand extends Command
                     if ($versionCheckEnabled && null !== $versionCheck['new_version']) {
                         $updateData['xml_file_version'] = $versionCheck['new_version'];
                     }
-                    
+
                     // 如果版本變更或路徑不同，則更新 nas_path
                     if ($versionCheck['should_reanalyze'] || $existingVideo->nas_path !== $nasPath) {
                         $updateData['nas_path'] = $nasPath;
@@ -175,7 +175,7 @@ class AnalyzeDocumentCommand extends Command
 
                     if (!empty($updateData)) {
                         $this->videoRepository->update($videoId, $updateData);
-                        
+
                         if ($versionCheck['should_reanalyze']) {
                             $this->line("\n{$versionCheck['reason']}: {$documentFile['source_id']}，將重新分析");
                         }
@@ -188,7 +188,7 @@ class AnalyzeDocumentCommand extends Command
                         'nas_path' => $nasPath,
                         'fetched_at' => date('Y-m-d H:i:s', $documentFile['last_modified']),
                     ];
-                    
+
                     // 僅在此來源啟用版本檢查時設定版本欄位
                     if ($versionCheckEnabled) {
                         $createData['xml_file_version'] = $versionCheck['new_version'] ?? 0;
@@ -198,7 +198,7 @@ class AnalyzeDocumentCommand extends Command
                         $createData['xml_file_version'] = 0;
                         $createData['mp4_file_version'] = 0;
                     }
-                    
+
                     $videoId = $this->videoRepository->findOrCreate($createData);
                 }
 
@@ -276,7 +276,7 @@ class AnalyzeDocumentCommand extends Command
                     ]);
 
                     $updated = $this->videoRepository->update($videoId, $updateData);
-                    
+
                     if (!$updated) {
                         throw new \Exception('更新影片 metadata 失敗: ' . $videoId);
                     }
@@ -556,7 +556,7 @@ class AnalyzeDocumentCommand extends Command
         if (!empty($mp4FilePaths['broadcast']) || !empty($mp4FilePaths['proxy'])) {
             $documentDir = dirname($documentFile['file_path']);
             $disk = $this->storageService->getDisk($storageType);
-            
+
             // 首先嘗試廣播
             if (!empty($mp4FilePaths['broadcast'])) {
                 $xmlMp4FilePath = $documentDir . '/' . $mp4FilePaths['broadcast'];
@@ -566,7 +566,7 @@ class AnalyzeDocumentCommand extends Command
                     return $xmlMp4Path;
                 }
             }
-            
+
             // 嘗試代理
             if (!empty($mp4FilePaths['proxy'])) {
                 $xmlMp4FilePath = $documentDir . '/' . $mp4FilePaths['proxy'];
@@ -603,13 +603,13 @@ class AnalyzeDocumentCommand extends Command
                 // 檢查路徑是否與 file_path 處於相同的目錄結構中
                 $documentDir = dirname($documentFile['file_path']);
                 $pathDir = dirname($path);
-                
+
                 // 如果路徑處於相同的目錄結構中，按原樣使用路徑
                 if ($pathDir === $documentDir || str_starts_with($path, $documentDir)) {
                     // 確保沒有前導斜線
                     return ltrim($path, '/');
                 }
-                
+
                 // 如果路徑是相對的（僅檔案名），從 documentFile 的目錄構建完整路徑
                 if (!str_contains($path, '/')) {
                     $fullPath = $documentDir . '/' . $path;
@@ -619,12 +619,12 @@ class AnalyzeDocumentCommand extends Command
                     }
                 }
             }
-            
+
             // 回退：使用提供的路徑，確保沒有前導斜線
             // 這處理 relative_path 格式（例如，cnn/CNNA-ST1-xxx/file.mp4）
             return ltrim($path, '/');
         }
-        
+
         // 對於其他儲存類型（nas、s3、local），使用 relative_path 格式
         return $path;
     }
@@ -643,26 +643,26 @@ class AnalyzeDocumentCommand extends Command
     {
         try {
             $disk = $this->storageService->getDisk($storageType);
-            
+
             // 從檔案路徑獲取目錄路徑
             $fileDir = dirname($filePath);
-            
+
             if (!$disk->exists($fileDir)) {
                 return null;
             }
-            
+
             // 如果提供了文檔檔案，則從中提取唯一識別碼
             $targetUniqueId = null;
             if (null !== $documentFile) {
                 $targetUniqueId = $this->extractUniqueIdFromFileName($documentFile['file_name'] ?? '');
             }
-            
+
             // 列出同目錄中的所有檔案
             $files = $disk->files($fileDir);
-            
+
             $mp4Files = [];
             $matchingMp4Files = [];
-            
+
             // 收集所有 MP4 檔案及其大小和版本
             foreach ($files as $file) {
                 $extension = strtolower(pathinfo($file, PATHINFO_EXTENSION));
@@ -670,50 +670,50 @@ class AnalyzeDocumentCommand extends Command
                     continue;
                 }
 
-                    try {
-                        $size = $disk->size($file);
+                try {
+                    $size = $disk->size($file);
                     $fileName = basename($file);
                     $fileVersion = $this->storageService->extractFileVersion($fileName);
-                    
+
                     // 提取版本號以進行排序（extractFileVersion 現在直接返回 int）
                     $versionNumber = $fileVersion ?? -1;
-                    
+
                     // 從 MP4 檔案名提取唯一識別碼
                     $mp4UniqueId = $this->extractUniqueIdFromFileName($fileName);
-                    
+
                     $mp4Data = [
-                            'file' => $file,
-                            'size' => $size,
+                        'file' => $file,
+                        'size' => $size,
                         'name' => $fileName,
                         'version' => $fileVersion,
                         'version_number' => $versionNumber,
                         'unique_id' => $mp4UniqueId,
-                        ];
-                    
+                    ];
+
                     $mp4Files[] = $mp4Data;
-                    
+
                     // 如果我們有目標唯一識別碼且此 MP4 匹配，則添加到匹配列表
                     if (null !== $targetUniqueId && $mp4UniqueId === $targetUniqueId) {
                         $matchingMp4Files[] = $mp4Data;
                     }
-                    } catch (\Exception $e) {
-                        // 跳過無法讀取的檔案
-                        Log::warning('[AnalyzeDocumentCommand] 無法取得 MP4 檔案大小', [
-                            'file' => $file,
-                            'error' => $e->getMessage(),
-                        ]);
-                        continue;
+                } catch (\Exception $e) {
+                    // 跳過無法讀取的檔案
+                    Log::warning('[AnalyzeDocumentCommand] 無法取得 MP4 檔案大小', [
+                        'file' => $file,
+                        'error' => $e->getMessage(),
+                    ]);
+                    continue;
                 }
             }
-            
+
             // 如果未找到 MP4 檔案，返回 null
             if (empty($mp4Files)) {
                 return null;
             }
-            
+
             // 如果我們有匹配的 MP4 檔案，優先處理它們
             $filesToSort = !empty($matchingMp4Files) ? $matchingMp4Files : $mp4Files;
-            
+
             // 排序方式：1. 版本號（降序 - 最新版本優先），2. 大小（升序 - 最小優先）
             usort($filesToSort, function ($a, $b) {
                 // 首先按版本號比較（較高版本優先）
@@ -723,9 +723,9 @@ class AnalyzeDocumentCommand extends Command
                 // 如果版本相等（或兩者都是 -1），按大小排序（較小優先）
                 return $a['size'] <=> $b['size'];
             });
-            
+
             $bestMp4 = $filesToSort[0];
-            
+
             // 根據儲存類型構建路徑
             // 對於 GCS，使用 file_path 格式（相對於 bucket 根目錄的完整路徑）
             // 對於其他儲存類型，使用 relative_path 格式

@@ -185,7 +185,7 @@ class DashboardService
         return [
             'source_name' => $video->source_name,
             'source_id' => $video->source_id,
-            'combined_source_id' => strtoupper($video->source_name) . $video->source_id,
+            'combined_source_id' => $video->source_id,
             'nas_path' => $video->nas_path,
             'title' => $video->title,
             'analysis_status' => $video->analysis_status->value,

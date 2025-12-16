@@ -19,7 +19,7 @@
         min-width: 250px;
         max-width: 320px;
         background-color: #ffffff;
-        padding: 25px 20px;
+        padding: 20px 15px;
         height: 100vh;
         overflow-y: auto;
         box-shadow: 2px 0 8px rgba(0, 0, 0, 0.1);
@@ -30,32 +30,41 @@
     }
 
     .sidebar h3 {
-        font-size: 1.3em;
+        font-size: 1.2em;
         color: #007bff;
         margin-top: 0;
-        margin-bottom: 20px;
+        margin-bottom: 12px;
         border-bottom: 2px solid #007bff;
-        padding-bottom: 12px;
+        padding-bottom: 8px;
     }
 
     .control-panel {
-        margin-bottom: 30px;
-        padding: 15px;
+        margin-bottom: 20px;
+        padding: 12px;
         background-color: #f8f9fa;
-        border-radius: 8px;
+        border-radius: 6px;
         border: 1px solid #e9ecef;
     }
 
     .control-btn {
         width: 100%;
-        padding: 12px;
-        margin-bottom: 10px;
+        padding: 8px 12px;
+        margin-bottom: 8px;
         border: none;
-        border-radius: 6px;
-        font-size: 0.95em;
+        border-radius: 5px;
+        font-size: 0.85em;
         font-weight: 500;
         cursor: pointer;
         transition: all 0.2s ease;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+    }
+
+    .control-btn .btn-icon {
+        font-size: 1em;
+        line-height: 1;
     }
 
     .control-btn:last-child {
@@ -73,12 +82,32 @@
     }
 
     .control-btn.secondary {
-        background-color: #6c757d;
-        color: white;
+        background-color: #ffc107;
+        color: #212529;
     }
 
     .control-btn.secondary:hover {
-        background-color: #5a6268;
+        background-color: #e0a800;
+        transform: translateY(-1px);
+    }
+
+    #deselectAllBtn {
+        background-color: #fd7e14;
+        color: white;
+    }
+
+    #deselectAllBtn:hover {
+        background-color: #e66a00;
+        transform: translateY(-1px);
+    }
+
+    .control-btn.export-btn {
+        background-color: #217346;
+        color: white;
+    }
+
+    .control-btn.export-btn:hover {
+        background-color: #1d6f42;
         transform: translateY(-1px);
     }
 
@@ -89,53 +118,73 @@
     }
 
     .filter-group {
-        margin-bottom: 25px;
+        margin-bottom: 15px;
     }
 
     .filter-group label {
         display: block;
-        margin-bottom: 8px;
+        margin-bottom: 5px;
         font-weight: 600;
-        font-size: 0.95em;
+        font-size: 0.9em;
         color: #343a40;
     }
 
     .filter-group input[type="text"],
     .filter-group select {
         width: 100%;
-        padding: 10px;
+        padding: 8px;
         border: 1px solid #ced4da;
-        border-radius: 5px;
-        font-size: 0.9em;
-        margin-bottom: 10px;
+        border-radius: 4px;
+        font-size: 0.85em;
+        margin-bottom: 8px;
         box-sizing: border-box;
     }
 
-    .filter-group button {
+    .filter-buttons {
+        display: flex;
+        gap: 8px;
         width: 100%;
-        padding: 10px 15px;
-        background-color: #28a745;
-        color: white;
+    }
+
+    .filter-buttons button {
+        flex: 1;
+        padding: 8px 12px;
         border: none;
-        border-radius: 5px;
+        border-radius: 4px;
         cursor: pointer;
-        font-size: 1em;
+        font-size: 0.9em;
         font-weight: 500;
-        transition: background-color 0.2s ease;
+        transition: all 0.2s ease;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
     }
 
-    .filter-group button:hover {
-        background-color: #218838;
+    .filter-buttons .btn-icon {
+        font-size: 1em;
+        line-height: 1;
+        font-weight: bold;
     }
 
-    .filter-group button.reset-btn {
-        background-color: #6c757d;
-        margin-top: 10px;
-        width: 100%;
+    .filter-group button.apply-btn {
+        background-color: #5cb85c;
+        color: white;
     }
 
-    .filter-group button.reset-btn:hover {
-        background-color: #5a6268;
+    .filter-group button.apply-btn:hover {
+        background-color: #4cae4c;
+        transform: translateY(-1px);
+    }
+
+    .filter-group button.cancel-btn {
+        background-color: #95a5a6;
+        color: white;
+    }
+
+    .filter-group button.cancel-btn:hover {
+        background-color: #7f8c8d;
+        transform: translateY(-1px);
     }
 
     #statusMessageContainer {

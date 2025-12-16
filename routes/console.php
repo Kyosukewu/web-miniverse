@@ -34,7 +34,7 @@ $schedulerEnabled = env('SCHEDULER_ENABLED', false);
 
 if ($schedulerEnabled) {
     // CNN 資源抓取：每 30 分鐘執行一次（優先執行，為後續分析提供資料）
-    Schedule::command('fetch:cnn')->everyThirtyMinutes()->onOneServer()->runInBackground();
+    Schedule::command('fetch:cnn --group-by=unique-id --keep-local')->everyThirtyMinutes()->onOneServer()->runInBackground();
 
     // CNN XML 文檔分析：每 10 分鐘執行一次（依賴 fetch:cnn 的結果）
     Schedule::command('analyze:document --source=CNN --storage=gcs')->everyTenMinutes()->onOneServer()->runInBackground();

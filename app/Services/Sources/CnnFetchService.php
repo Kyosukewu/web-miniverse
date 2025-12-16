@@ -36,7 +36,7 @@ class CnnFetchService implements FetchServiceInterface
      */
     public function fetchResourceList(): array
     {
-        return $this->fetchResourceListWithProgress(50, false, false, null);
+        return $this->fetchResourceListWithProgress(50, false, false, 'label', null);
     }
 
     /**
@@ -45,6 +45,7 @@ class CnnFetchService implements FetchServiceInterface
      * @param int $batchSize Batch size for processing files
      * @param bool $dryRun If true, only simulate without actually moving files
      * @param bool $keepLocal If true, keep local files after uploading to GCS
+     * @param string $groupBy Grouping method: 'label' (by description label, use first unique ID) or 'unique-id' (by unique ID directly)
      * @param callable|null $progressCallback Callback function(current, total, message)
      * @return array<int, array<string, mixed>>
      */
@@ -52,6 +53,7 @@ class CnnFetchService implements FetchServiceInterface
         int $batchSize = 50,
         bool $dryRun = false,
         bool $keepLocal = false,
+        string $groupBy = 'label',
         ?callable $progressCallback = null
     ): array {
         $gcsPath = $this->config['gcs_path'] ?? 'cnn/';
@@ -96,6 +98,7 @@ class CnnFetchService implements FetchServiceInterface
                     $gcsPath,
                     $dryRun,
                     $keepLocal,
+                    $groupBy,
                     $progressCallback,
                     $processedCount,
                     $totalFiles
@@ -121,6 +124,7 @@ class CnnFetchService implements FetchServiceInterface
                 $gcsPath,
                 $dryRun,
                 $keepLocal,
+                $groupBy,
                 $progressCallback,
                 $processedCount,
                 $totalFiles
@@ -176,6 +180,7 @@ class CnnFetchService implements FetchServiceInterface
      * @param string $gcsBasePath
      * @param bool $dryRun
      * @param bool $keepLocal
+     * @param string $groupBy Grouping method: 'label' or 'unique-id'
      * @param callable|null $progressCallback
      * @param int $currentProcessed
      * @param int $totalFiles
@@ -186,12 +191,15 @@ class CnnFetchService implements FetchServiceInterface
         string $gcsBasePath,
         bool $dryRun,
         bool $keepLocal,
+        string $groupBy,
         ?callable $progressCallback,
         int $currentProcessed,
         int $totalFiles
     ): array {
-        // Group files by unique identifier
-        $groupedFiles = $this->groupFilesByUniqueId($files);
+        // Group files by selected method
+        $groupedFiles = 'unique-id' === $groupBy
+            ? $this->groupFilesByUniqueIdOnly($files)
+            : $this->groupFilesByUniqueId($files);
 
         // Move files to GCS
         $movedCount = 0;
@@ -286,9 +294,15 @@ class CnnFetchService implements FetchServiceInterface
         $targetDir = rtrim($gcsBasePath, '/') . '/' . $uniqueId;
         $targetPath = $targetDir . '/' . $file['name'];
 
-        // Check if file already exists in GCS
+        // Check if file already exists in GCS (same filename = same version)
         if ($gcsDisk->exists($targetPath)) {
             return ['moved' => false, 'skipped' => true, 'error' => false];
+        }
+
+        // In keep-local mode, check if there's an older version of the same file type
+        // and remove it if the local version is newer
+        if ($keepLocal) {
+            $this->handleVersionUpdate($file, $uniqueId, $targetDir, $gcsDisk);
         }
 
         // Read file content (for large files, consider streaming)
@@ -328,6 +342,80 @@ class CnnFetchService implements FetchServiceInterface
                 'error' => $e->getMessage(),
             ]);
             return ['moved' => false, 'skipped' => false, 'error' => true];
+        }
+    }
+
+    /**
+     * Handle version update in keep-local mode.
+     * If a newer version of the same file type exists locally, remove older versions from GCS.
+     *
+     * @param array<string, mixed> $file Local file info
+     * @param string $uniqueId Unique identifier
+     * @param string $targetDir Target directory in GCS
+     * @param \Illuminate\Contracts\Filesystem\Filesystem $gcsDisk GCS disk instance
+     * @return void
+     */
+    private function handleVersionUpdate(array $file, string $uniqueId, string $targetDir, $gcsDisk): void
+    {
+        // Extract local file version
+        $localVersion = $this->storageService->extractFileVersion($file['name']);
+        if (null === $localVersion) {
+            // No version found, skip version check
+            return;
+        }
+
+        // Determine file type (xml or mp4)
+        $fileType = strtolower($file['extension']);
+        if (!in_array($fileType, ['xml', 'mp4'], true)) {
+            // Only check version for XML and MP4 files
+            return;
+        }
+
+        // List all files in the target directory
+        try {
+            $existingFiles = $gcsDisk->files($targetDir);
+        } catch (\Exception $e) {
+            Log::warning('[CnnFetchService] 無法列出 GCS 目錄中的檔案', [
+                'target_dir' => $targetDir,
+                'error' => $e->getMessage(),
+            ]);
+            return;
+        }
+
+        // Find files of the same type with older versions
+        foreach ($existingFiles as $existingFilePath) {
+            $existingFileName = basename($existingFilePath);
+            $existingFileType = strtolower(pathinfo($existingFileName, PATHINFO_EXTENSION));
+
+            // Only check files of the same type
+            if ($existingFileType !== $fileType) {
+                continue;
+            }
+
+            // Extract version from existing file
+            $existingVersion = $this->storageService->extractFileVersion($existingFileName);
+            if (null === $existingVersion) {
+                continue;
+            }
+
+            // If local version is newer, remove older version from GCS
+            if ($localVersion > $existingVersion) {
+                try {
+                    $gcsDisk->delete($existingFilePath);
+                    Log::info('[CnnFetchService] 已刪除舊版號檔案', [
+                        'unique_id' => $uniqueId,
+                        'old_file' => $existingFileName,
+                        'old_version' => $existingVersion,
+                        'new_file' => $file['name'],
+                        'new_version' => $localVersion,
+                    ]);
+                } catch (\Exception $e) {
+                    Log::warning('[CnnFetchService] 無法刪除舊版號檔案', [
+                        'file_path' => $existingFilePath,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            }
         }
     }
 
@@ -490,6 +578,36 @@ class CnnFetchService implements FetchServiceInterface
             $files[] = $file;
         }
         return $files;
+    }
+
+    /**
+     * Group files directly by unique identifier (each unique ID gets its own folder).
+     *
+     * @param array<int, array<string, mixed>> $files
+     * @return array<string, array<int, array<string, mixed>>>
+     */
+    private function groupFilesByUniqueIdOnly(array $files): array
+    {
+        $grouped = [];
+
+        foreach ($files as $file) {
+            $uniqueId = $this->extractUniqueId($file['name']);
+
+            if (null === $uniqueId) {
+                Log::warning('[CnnFetchService] 無法從檔名提取唯一識別碼', [
+                    'file_name' => $file['name'],
+                ]);
+                continue;
+            }
+
+            if (!isset($grouped[$uniqueId])) {
+                $grouped[$uniqueId] = [];
+            }
+
+            $grouped[$uniqueId][] = $file;
+        }
+
+        return $grouped;
     }
 
     /**

@@ -37,8 +37,16 @@
                     </select>
                 </div>
                 <div class="filter-group">
-                    <button type="submit" class="reset-btn">套用篩選</button>
-                    <button type="button" id="resetFilterBtn" class="reset-btn">重置篩選</button>
+                    <div class="filter-buttons">
+                        <button type="submit" class="apply-btn">
+                            <span class="btn-icon">✓</span>
+                            <span>套用篩選</span>
+                        </button>
+                        <button type="button" id="resetFilterBtn" class="cancel-btn">
+                            <span class="btn-icon">✕</span>
+                            <span>重置篩選</span>
+                        </button>
+                    </div>
                 </div>
             </form>
 
@@ -47,10 +55,19 @@
                 {{-- <button id="triggerTextAnalysisBtn" class="control-btn primary">手動觸發文本元數據分析</button>
                 <button id="triggerVideoAnalysisBtn" class="control-btn secondary">手動觸發影片內容分析</button> --}}
                 <div class="checkbox-controls">
-                    <button type="button" id="selectAllBtn" class="control-btn secondary">全選</button>
-                    <button type="button" id="deselectAllBtn" class="control-btn secondary">取消全選</button>
+                    <button type="button" id="selectAllBtn" class="control-btn secondary">
+                        <span class="btn-icon">☑</span>
+                        <span>全選</span>
+                    </button>
+                    <button type="button" id="deselectAllBtn" class="control-btn secondary">
+                        <span class="btn-icon">☐</span>
+                        <span>取消全選</span>
+                    </button>
                 </div>
-                <button id="exportExcelBtn" class="control-btn secondary">匯出Excel</button>
+                <button id="exportExcelBtn" class="control-btn export-btn">
+                    <span class="btn-icon">📊</span>
+                    <span>匯出資料</span>
+                </button>
             </div>
         </aside>
 

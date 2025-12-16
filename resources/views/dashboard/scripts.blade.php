@@ -92,13 +92,13 @@
 
         // 顯示確認對話框
         Swal.fire({
-            title: '確認匯出 Excel',
+            title: '確認匯出資料',
             html: confirmMessage,
             icon: 'question',
             showCancelButton: true,
             confirmButtonText: '確定匯出',
             cancelButtonText: '取消',
-            confirmButtonColor: '#007bff',
+            confirmButtonColor: '#217346',
             cancelButtonColor: '#6c757d',
             reverseButtons: true
         }).then((result) => {
@@ -184,14 +184,30 @@
         const checkboxes = document.querySelectorAll('.video-checkbox');
         checkboxes.forEach(cb => cb.checked = true);
         const count = checkboxes.length;
-        displayStatusMessage(`已選擇 ${count} 筆資料`, 'success');
+        Swal.fire({
+            icon: 'success',
+            title: '已全選',
+            text: `已選擇 ${count} 筆資料`,
+            timer: 2000,
+            showConfirmButton: false,
+            toast: true,
+            position: 'top-end'
+        });
     }
 
     // 取消全選功能
     function deselectAll() {
         const checkboxes = document.querySelectorAll('.video-checkbox');
         checkboxes.forEach(cb => cb.checked = false);
-        displayStatusMessage('已取消所有選擇', 'info');
+        Swal.fire({
+            icon: 'info',
+            title: '已取消全選',
+            text: '已取消所有選擇',
+            timer: 2000,
+            showConfirmButton: false,
+            toast: true,
+            position: 'top-end'
+        });
     }
 
     // 綁定事件處理器
