@@ -101,8 +101,9 @@ services:
       PMA_PASSWORD: ${DB_PASSWORD:-root}
       MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-root}
       UPLOAD_LIMIT: 300M
-      # 設定 phpMyAdmin 在子路徑下運行
-      PMA_ABSOLUTE_URI: /phpmyadmin/
+      # 設定 phpMyAdmin 在子路徑下運行（使用完整 URL）
+      # 注意：如果使用 HTTPS，需要設置為 https://miniverse.tvbs-internal.com.tw/phpmyadmin/
+      PMA_ABSOLUTE_URI: http://miniverse.tvbs-internal.com.tw/phpmyadmin/
     depends_on:
       - db
     networks:
