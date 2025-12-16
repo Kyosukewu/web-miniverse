@@ -370,8 +370,15 @@ class AnalyzeVideoCommand extends Command
             }
             
             // 構建相對路徑（nas_path 格式）
-            $mp4Dir = dirname($nasPath);
-            return $mp4Dir . '/' . $bestMp4['name'];
+            // 對於 GCS，$bestMp4['file'] 已經是完整的 GCS 路徑（相對於 bucket 根目錄）
+            // 例如：cnn/CNNA-ST1-xxx/檔案.mp4
+            if ('gcs' === $storageType) {
+                return ltrim($bestMp4['file'], '/');
+            } else {
+                // 對於其他儲存類型，使用目錄和檔案名構建路徑
+                $mp4Dir = dirname($nasPath);
+                return $mp4Dir . '/' . $bestMp4['name'];
+            }
         } catch (\Exception $e) {
             Log::warning('[AnalyzeVideoCommand] 在同資料夾中尋找最佳 MP4 檔案失敗', [
                 'storage_type' => $storageType,

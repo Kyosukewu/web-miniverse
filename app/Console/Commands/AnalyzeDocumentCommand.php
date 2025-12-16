@@ -729,11 +729,10 @@ class AnalyzeDocumentCommand extends Command
             // 根據儲存類型構建路徑
             // 對於 GCS，使用 file_path 格式（相對於 bucket 根目錄的完整路徑）
             // 對於其他儲存類型，使用 relative_path 格式
-            $storageType = strtolower($this->option('storage'));
             if ('gcs' === $storageType) {
-                // 使用磁碟上的實際檔案路徑（完整 GCS 路徑）
-                $mp4Dir = dirname($filePath);
-                return ltrim($mp4Dir . '/' . $bestMp4['name'], '/');
+                // 對於 GCS，$bestMp4['file'] 已經是完整的 GCS 路徑（相對於 bucket 根目錄）
+                // 例如：cnn/CNNA-ST1-xxx/檔案.mp4
+                return ltrim($bestMp4['file'], '/');
             } else {
                 // 使用相對路徑格式
                 $mp4Dir = dirname($relativePath);
