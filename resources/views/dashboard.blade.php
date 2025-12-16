@@ -201,6 +201,12 @@
                                             @endif
                                         @elseif($isFullUrl)
                                             {{-- For other full URLs (direct video file URLs), use video tag --}}
+                                            <div class="video-download-container">
+                                                <a href="{{ $videoUrl }}" download class="video-download-btn" title="下載影片">
+                                                    <span class="btn-icon">⬇</span>
+                                                    <span>下載</span>
+                                                </a>
+                                            </div>
                                             <video controls preload="metadata" width="100%" height="100%">
                                                 <source src="{{ $videoUrl }}" type="video/mp4">
                                                 您的瀏覽器不支援影片播放。
@@ -208,6 +214,12 @@
                                             </video>
                                         @else
                                             {{-- For relative paths, use video tag with /media/ prefix --}}
+                                            <div class="video-download-container">
+                                                <a href="{{ $videoUrl }}" download class="video-download-btn" title="下載影片">
+                                                    <span class="btn-icon">⬇</span>
+                                                    <span>下載</span>
+                                                </a>
+                                            </div>
                                         <video controls preload="metadata" width="100%" height="100%">
                                                 <source src="{{ $videoUrl }}" type="video/mp4">
                                             您的瀏覽器不支援影片播放。

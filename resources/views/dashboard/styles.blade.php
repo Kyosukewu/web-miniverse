@@ -482,6 +482,41 @@
         position: relative;
     }
 
+    .video-download-container {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        z-index: 10;
+    }
+
+    .video-download-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 8px 12px;
+        background-color: #007bff;
+        color: white;
+        text-decoration: none;
+        border-radius: 5px;
+        font-size: 0.85em;
+        font-weight: 500;
+        transition: all 0.2s ease;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    }
+
+    .video-download-btn:hover {
+        background-color: #0056b3;
+        transform: translateY(-1px);
+        box-shadow: 0 3px 6px rgba(0, 0, 0, 0.3);
+        color: white;
+        text-decoration: none;
+    }
+
+    .video-download-btn .btn-icon {
+        font-size: 1em;
+        line-height: 1;
+    }
+
     /* Responsive YouTube embed container (16:9 aspect ratio) */
     .video-player-container.has-youtube::before {
         content: "";
