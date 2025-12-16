@@ -39,6 +39,9 @@ services:
       - GOOGLE_CLOUD_KEY_FILE=${GOOGLE_CLOUD_KEY_FILE:-}
       - GOOGLE_CLOUD_STORAGE_BUCKET=${GOOGLE_CLOUD_STORAGE_BUCKET:-miniverse-tvbs-internal-com-tw}
       - GOOGLE_CLOUD_STORAGE_PATH_PREFIX=${GOOGLE_CLOUD_STORAGE_PATH_PREFIX:-}
+      # 設定 GOOGLE_APPLICATION_CREDENTIALS 指向掛載的 gcloud 認證目錄
+      # 如果 application_default_credentials.json 存在，會自動使用；否則會使用 credentials.db
+      - GOOGLE_APPLICATION_CREDENTIALS=/root/.config/gcloud/application_default_credentials.json
       # Gemini API
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       # YouTube API（可選）
