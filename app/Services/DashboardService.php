@@ -6,6 +6,7 @@ namespace App\Services;
 
 use App\Helpers\DashboardHelper;
 use App\Repositories\VideoRepository;
+use App\Services\StorageService;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
@@ -14,7 +15,8 @@ use Illuminate\Support\Facades\Log;
 class DashboardService
 {
     public function __construct(
-        private VideoRepository $videoRepository
+        private VideoRepository $videoRepository,
+        private StorageService $storageService
     ) {
     }
 
@@ -174,13 +176,8 @@ class DashboardService
         $analysisData = $this->parseAnalysisResultData($analysisResult);
         $processedShotlistContent = $this->getProcessedShotlistContent($video->shotlist_content);
 
-        // Determine video URL: if nas_path is a full URL, use it directly; otherwise use /storage/app/ route
-        $videoUrl = $video->nas_path;
-        if (!empty($videoUrl) && !preg_match('/^https?:\/\//i', $videoUrl)) {
-            // Use relative URL path that will be served by route
-            // storage_path('app/') maps to /storage/app/ URL path
-            $videoUrl = '/storage/app/' . ltrim($videoUrl, '/');
-        }
+        // Determine video URL based on source type and storage
+        $videoUrl = $this->generateVideoUrl($video);
 
         return [
             'source_name' => $video->source_name,
@@ -215,6 +212,45 @@ class DashboardService
                 'analysis_created_at' => $analysisResult->created_at,
             ]) : null,
         ];
+    }
+
+    /**
+     * Generate video URL based on source type and storage.
+     * For CNN with GCS storage, generates GCS download URL.
+     * For YouTube, uses the URL directly.
+     * For other sources, uses /storage/app/ route.
+     *
+     * @param mixed $video
+     * @return string
+     */
+    private function generateVideoUrl($video): string
+    {
+        $nasPath = $video->nas_path;
+        
+        if (empty($nasPath)) {
+            return '';
+        }
+
+        // If nas_path is already a full URL (YouTube or other external URLs), use it directly
+        if (preg_match('/^https?:\/\//i', $nasPath)) {
+            return $nasPath;
+        }
+
+        // For CNN source, check if it's stored in GCS
+        if ('CNN' === $video->source_name) {
+            // Check if nas_path looks like a GCS path (starts with cnn/)
+            if (str_starts_with($nasPath, 'cnn/')) {
+                // Generate GCS URL using StorageService
+                $gcsUrl = $this->storageService->getGcsUrl($nasPath, 'CNN');
+                if (null !== $gcsUrl) {
+                    return $gcsUrl;
+                }
+            }
+        }
+
+        // Fallback: Use relative URL path for local storage
+        // storage_path('app/') maps to /storage/app/ URL path
+        return '/storage/app/' . ltrim($nasPath, '/');
     }
 
     /**
