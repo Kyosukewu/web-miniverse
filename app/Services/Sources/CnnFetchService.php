@@ -46,6 +46,7 @@ class CnnFetchService implements FetchServiceInterface
      * @param bool $dryRun If true, only simulate without actually moving files
      * @param bool $keepLocal If true, keep local files after uploading to GCS
      * @param string $groupBy Grouping method: 'label' (by description label, use first unique ID) or 'unique-id' (by unique ID directly)
+     * @param int|null $limit Maximum total number of files to process (null = process all)
      * @param callable|null $progressCallback Callback function(current, total, message)
      * @return array<int, array<string, mixed>>
      */
@@ -54,6 +55,7 @@ class CnnFetchService implements FetchServiceInterface
         bool $dryRun = false,
         bool $keepLocal = false,
         string $groupBy = 'label',
+        ?int $limit = null,
         ?callable $progressCallback = null
     ): array {
         $gcsPath = $this->config['gcs_path'] ?? 'cnn/';
@@ -63,6 +65,7 @@ class CnnFetchService implements FetchServiceInterface
             'source_path' => $this->sourcePath,
             'gcs_path' => $gcsPath,
             'batch_size' => $batchSize,
+            'limit' => $limit,
             'dry_run' => $dryRun,
             'keep_local' => $keepLocal,
         ]);
@@ -89,6 +92,18 @@ class CnnFetchService implements FetchServiceInterface
         $errorCount = 0;
 
         foreach ($this->scanLocalFilesGenerator() as $file) {
+            // 如果設定了 limit，檢查是否已達到上限
+            if (null !== $limit && $processedCount >= $limit) {
+                if (null !== $progressCallback) {
+                    $progressCallback($processedCount, $limit, "已達到處理上限 ({$limit})，停止處理");
+                }
+                Log::info('[CnnFetchService] 已達到處理上限，停止處理', [
+                    'limit' => $limit,
+                    'processed_count' => $processedCount,
+                ]);
+                break;
+            }
+
             $localFiles[] = $file;
 
             // Process in batches to avoid memory issues
@@ -101,7 +116,7 @@ class CnnFetchService implements FetchServiceInterface
                     $groupBy,
                     $progressCallback,
                     $processedCount,
-                    $totalFiles
+                    $limit ?? $totalFiles
                 );
                 $processedCount += count($localFiles);
                 $movedCount += $result['moved'];
@@ -110,9 +125,15 @@ class CnnFetchService implements FetchServiceInterface
                 $localFiles = []; // Clear batch to free memory
 
                 // Show batch progress
-                if (null !== $progressCallback && $totalFiles > 0) {
-                    $percentage = round(($processedCount / $totalFiles) * 100, 1);
-                    $progressCallback($processedCount, $totalFiles, "已處理 {$processedCount}/{$totalFiles} ({$percentage}%)");
+                $maxFiles = $limit ?? $totalFiles;
+                if (null !== $progressCallback && $maxFiles > 0) {
+                    $percentage = round(($processedCount / $maxFiles) * 100, 1);
+                    $progressCallback($processedCount, $maxFiles, "已處理 {$processedCount}/{$maxFiles} ({$percentage}%)");
+                }
+
+                // 再次檢查是否已達到 limit
+                if (null !== $limit && $processedCount >= $limit) {
+                    break;
                 }
             }
         }
@@ -320,6 +341,21 @@ class CnnFetchService implements FetchServiceInterface
             $gcsDisk->put($targetPath, $content);
             unset($content); // Free memory immediately
 
+            // 驗證檔案是否真的上傳成功
+            if (!$gcsDisk->exists($targetPath)) {
+                Log::error('[CnnFetchService] 檔案上傳後驗證失敗，GCS 中不存在', [
+                    'local_path' => $file['path'],
+                    'gcs_path' => $targetPath,
+                ]);
+                return ['moved' => false, 'skipped' => false, 'error' => true];
+            }
+
+            Log::info('[CnnFetchService] 檔案成功上傳到 GCS', [
+                'local_path' => $file['path'],
+                'gcs_path' => $targetPath,
+                'unique_id' => $uniqueId,
+            ]);
+
             // Delete local file after successful upload (if not keeping local)
             if (!$keepLocal) {
                 if (@unlink($file['path'])) {
@@ -340,6 +376,7 @@ class CnnFetchService implements FetchServiceInterface
                 'local_path' => $file['path'],
                 'gcs_path' => $targetPath,
                 'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
             ]);
             return ['moved' => false, 'skipped' => false, 'error' => true];
         }

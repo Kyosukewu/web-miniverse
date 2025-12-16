@@ -29,6 +29,7 @@ class FetchCnnCommand extends Command
      */
     protected $signature = 'fetch:cnn
                             {--batch-size=50 : 每批處理的檔案數量（預設 50）}
+                            {--limit= : 總共處理的檔案數量上限（可選，未設定則處理所有檔案）}
                             {--dry-run : 乾跑模式，僅顯示會處理的檔案，不實際上傳}
                             {--keep-local : 保留本地檔案，上傳到 GCS 後不刪除}
                             {--group-by=label : 分類方式：label（依描述標籤分類，使用第一個遇到的唯一ID作為資料夾名稱）或 unique-id（直接依唯一ID分類）}';
@@ -100,12 +101,20 @@ class FetchCnnCommand extends Command
 
         try {
             // 執行完整流程：掃描本地 → 整理 → 上傳到 GCS → 返回資源列表
-            $this->info("開始處理（批次大小: {$batchSize}）...");
+            $limit = $this->option('limit') ? (int) $this->option('limit') : null;
+            
+            if (null !== $limit) {
+                $this->info("開始處理（批次大小: {$batchSize}，總處理上限: {$limit}）...");
+            } else {
+                $this->info("開始處理（批次大小: {$batchSize}）...");
+            }
+            
             $resources = $this->cnnFetchService->fetchResourceListWithProgress(
                 $batchSize,
                 $dryRun,
                 $keepLocal,
                 $groupBy,
+                $limit,
                 function ($current, $total, $message) {
                     if (null !== $total && $total > 0) {
                         $percentage = round(($current / $total) * 100, 1);
