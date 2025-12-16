@@ -35,7 +35,8 @@ services:
       # GCS 配置
       # 注意：GOOGLE_CLOUD_PROJECT_ID 和 GOOGLE_CLOUD_KEY_FILE 為可選項
       # 如果未提供，將使用默認認證（例如：GOOGLE_APPLICATION_CREDENTIALS 環境變數或 gcloud auth application-default login）
-      - GOOGLE_CLOUD_PROJECT_ID=${GOOGLE_CLOUD_PROJECT_ID:-}
+      # GCE 實例需要設定 project_id 才能正確使用服務帳號認證
+      - GOOGLE_CLOUD_PROJECT_ID=${GOOGLE_CLOUD_PROJECT_ID:-tvbs-outsourcing-cnn}
       - GOOGLE_CLOUD_KEY_FILE=${GOOGLE_CLOUD_KEY_FILE:-}
       - GOOGLE_CLOUD_STORAGE_BUCKET=${GOOGLE_CLOUD_STORAGE_BUCKET:-miniverse-tvbs-internal-com-tw}
       - GOOGLE_CLOUD_STORAGE_PATH_PREFIX=${GOOGLE_CLOUD_STORAGE_PATH_PREFIX:-}
