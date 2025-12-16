@@ -58,9 +58,12 @@ return [
 
         'gcs' => [
             'driver' => 'gcs',
-            'project_id' => env('GOOGLE_CLOUD_PROJECT_ID'),
-            'key_file' => env('GOOGLE_CLOUD_KEY_FILE', storage_path('app/gcs-key.json')),
-            'bucket' => env('GOOGLE_CLOUD_STORAGE_BUCKET'),
+            // project_id 和 key_file 為可選項
+            // 如果未提供，將使用默認認證（例如：GOOGLE_APPLICATION_CREDENTIALS 環境變數或 gcloud auth application-default login）
+            'project_id' => env('GOOGLE_CLOUD_PROJECT_ID', null),
+            'key_file' => env('GOOGLE_CLOUD_KEY_FILE', null),
+            // bucket 名稱（必填）
+            'bucket' => env('GOOGLE_CLOUD_STORAGE_BUCKET', 'miniverse-tvbs-internal-com-tw'),
             'path_prefix' => env('GOOGLE_CLOUD_STORAGE_PATH_PREFIX', ''),
             'storage_api_uri' => env('GOOGLE_CLOUD_STORAGE_API_URI'),
             'url' => env('GOOGLE_CLOUD_STORAGE_URL', null), // GCS 資源存取 domain

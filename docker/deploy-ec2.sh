@@ -174,10 +174,11 @@ if [ "$ENV_CREATED" = true ]; then
     fi
     
     # 檢查 GCS 配置（如果使用 GCS）
-    GCS_PROJECT=$(get_env_value "GOOGLE_CLOUD_PROJECT_ID")
+    # 注意：GOOGLE_CLOUD_PROJECT_ID 和 GOOGLE_CLOUD_KEY_FILE 為可選項
+    # 如果未提供，將使用默認認證（例如：GOOGLE_APPLICATION_CREDENTIALS 環境變數或 gcloud auth application-default login）
     GCS_BUCKET=$(get_env_value "GOOGLE_CLOUD_STORAGE_BUCKET")
-    if [ -z "$GCS_PROJECT" ] || [ -z "$GCS_BUCKET" ]; then
-        WARNING_VARS+=("GOOGLE_CLOUD_PROJECT_ID 和 GOOGLE_CLOUD_STORAGE_BUCKET (GCS 功能需要)")
+    if [ -z "$GCS_BUCKET" ]; then
+        WARNING_VARS+=("GOOGLE_CLOUD_STORAGE_BUCKET (GCS 功能需要，預設為 miniverse-tvbs-internal-com-tw)")
     fi
     
     # 如果有缺少的變數，提示用戶設定
