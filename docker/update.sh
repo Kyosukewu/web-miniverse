@@ -122,9 +122,10 @@ fi
 
 # 4. 清理 Docker 資源（避免舊資源堆積）
 echo -e "\n${GREEN}🧹 清理未使用的 Docker 資源...${NC}"
-echo -e "${YELLOW}正在清理未使用的容器、網路和懸空映像...${NC}"
-# 清理未使用的容器、網路和懸空映像（不刪除卷，避免誤刪資料）
-docker system prune -f
+echo -e "${YELLOW}正在清理未使用的容器、網路和所有未使用的映像...${NC}"
+# 清理未使用的容器、網路和所有未使用的映像（不刪除卷，避免誤刪資料）
+# 使用 -a 參數以清理所有未使用的映像，不只是懸空映像
+docker system prune -a -f
 echo -e "${GREEN}✓ Docker 資源清理完成${NC}"
 
 # 5. 重新構建容器（如果有 Dockerfile 變更）
