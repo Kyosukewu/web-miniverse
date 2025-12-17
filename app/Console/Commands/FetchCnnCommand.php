@@ -32,7 +32,8 @@ class FetchCnnCommand extends Command
                             {--limit= : 總共處理的檔案數量上限（可選，未設定則處理所有檔案）}
                             {--dry-run : 乾跑模式，僅顯示會處理的檔案，不實際上傳}
                             {--keep-local : 保留本地檔案，上傳到 GCS 後不刪除}
-                            {--group-by=label : 分類方式：label（依描述標籤分類，使用第一個遇到的唯一ID作為資料夾名稱）或 unique-id（直接依唯一ID分類）}';
+                            {--group-by=label : 分類方式：label（依描述標籤分類，使用第一個遇到的唯一ID作為資料夾名稱）或 unique-id（直接依唯一ID分類）}
+                            {--file-type= : 指定要處理的檔案類型：mp4、xml 或 all（預設 all，處理所有類型）}';
 
     /**
      * The console command description.
@@ -73,11 +74,18 @@ class FetchCnnCommand extends Command
         $dryRun = $this->option('dry-run');
         $keepLocal = $this->option('keep-local');
         $groupBy = $this->option('group-by');
+        $fileType = $this->option('file-type') ?? 'all';
         $sourcePath = Config::get('sources.cnn.source_path', '/mnt/PushDownloads');
 
         // 驗證分類方式選項
         if (!in_array($groupBy, ['label', 'unique-id'], true)) {
             $this->error("❌ 無效的分類方式：{$groupBy}。請使用 'label' 或 'unique-id'");
+            return Command::FAILURE;
+        }
+
+        // 驗證檔案類型選項
+        if (!in_array($fileType, ['mp4', 'xml', 'all'], true)) {
+            $this->error("❌ 無效的檔案類型：{$fileType}。請使用 'mp4'、'xml' 或 'all'");
             return Command::FAILURE;
         }
 
@@ -91,6 +99,12 @@ class FetchCnnCommand extends Command
 
         $groupByText = 'label' === $groupBy ? '依描述標籤分類（使用第一個遇到的唯一ID作為資料夾名稱）' : '依唯一ID分類';
         $this->info("📁 分類方式：{$groupByText}");
+
+        // 顯示檔案類型過濾資訊
+        if ('all' !== $fileType) {
+            $fileTypeText = 'mp4' === $fileType ? 'MP4 影片檔' : 'XML 文件檔';
+            $this->info("📄 檔案類型：僅處理 {$fileTypeText}");
+        }
 
         $this->info('開始處理 CNN 資源...');
         if ($dryRun) {
@@ -122,7 +136,8 @@ class FetchCnnCommand extends Command
                     } else {
                         $this->line("處理中: {$current} - {$message}");
                     }
-                }
+                },
+                $fileType
             );
 
         if (empty($resources)) {

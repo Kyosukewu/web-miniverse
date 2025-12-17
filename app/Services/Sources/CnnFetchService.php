@@ -48,6 +48,7 @@ class CnnFetchService implements FetchServiceInterface
      * @param string $groupBy Grouping method: 'label' (by description label, use first unique ID) or 'unique-id' (by unique ID directly)
      * @param int|null $limit Maximum total number of files to process (null = process all)
      * @param callable|null $progressCallback Callback function(current, total, message)
+     * @param string $fileType File type filter: 'mp4', 'xml', or 'all' (default: 'all')
      * @return array<int, array<string, mixed>>
      */
     public function fetchResourceListWithProgress(
@@ -56,7 +57,8 @@ class CnnFetchService implements FetchServiceInterface
         bool $keepLocal = false,
         string $groupBy = 'label',
         ?int $limit = null,
-        ?callable $progressCallback = null
+        ?callable $progressCallback = null,
+        string $fileType = 'all'
     ): array {
         $gcsPath = $this->config['gcs_path'] ?? 'cnn/';
         $sourceName = 'CNN';
@@ -68,6 +70,7 @@ class CnnFetchService implements FetchServiceInterface
             'limit' => $limit,
             'dry_run' => $dryRun,
             'keep_local' => $keepLocal,
+            'file_type' => $fileType,
         ]);
 
         // Step 1: First pass - count total files (for progress display)
@@ -77,11 +80,19 @@ class CnnFetchService implements FetchServiceInterface
 
         $totalFiles = 0;
         foreach ($this->scanLocalFilesGenerator() as $file) {
+            // 檔案類型過濾（計數時也要過濾）
+            if ('all' !== $fileType) {
+                $extension = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+                if ($fileType !== $extension) {
+                    continue;
+                }
+            }
             $totalFiles++;
         }
 
         if (null !== $progressCallback) {
-            $progressCallback(0, $totalFiles, "找到 {$totalFiles} 個檔案，開始處理...");
+            $fileTypeText = 'all' === $fileType ? '' : " ({$fileType} 檔案)";
+            $progressCallback(0, $totalFiles, "找到 {$totalFiles} 個檔案{$fileTypeText}，開始處理...");
         }
 
         // Step 2: Process files in batches
@@ -92,6 +103,14 @@ class CnnFetchService implements FetchServiceInterface
         $errorCount = 0;
 
         foreach ($this->scanLocalFilesGenerator() as $file) {
+            // 檔案類型過濾
+            if ('all' !== $fileType) {
+                $extension = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+                if ($fileType !== $extension) {
+                    continue; // 跳過不符合類型的檔案
+                }
+            }
+
             // 如果設定了 limit，檢查是否已達到上限（只計算成功移動的檔案）
             if (null !== $limit && $movedCount >= $limit) {
                 if (null !== $progressCallback) {
