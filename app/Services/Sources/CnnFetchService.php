@@ -85,20 +85,21 @@ class CnnFetchService implements FetchServiceInterface
         }
 
         // Step 2: Process files in batches
-        $processedCount = 0;
+        $processedCount = 0; // 總處理數量（用於進度顯示）
+        $movedCount = 0;      // 成功移動的數量（用於 limit 檢查）
         $localFiles = [];
-        $movedCount = 0;
         $skippedCount = 0;
         $errorCount = 0;
 
         foreach ($this->scanLocalFilesGenerator() as $file) {
-            // 如果設定了 limit，檢查是否已達到上限
-            if (null !== $limit && $processedCount >= $limit) {
+            // 如果設定了 limit，檢查是否已達到上限（只計算成功移動的檔案）
+            if (null !== $limit && $movedCount >= $limit) {
                 if (null !== $progressCallback) {
-                    $progressCallback($processedCount, $limit, "已達到處理上限 ({$limit})，停止處理");
+                    $progressCallback($processedCount, $limit, "已達到處理上限 ({$limit} 個檔案已移動)，停止處理");
                 }
                 Log::info('[CnnFetchService] 已達到處理上限，停止處理', [
                     'limit' => $limit,
+                    'moved_count' => $movedCount,
                     'processed_count' => $processedCount,
                 ]);
                 break;
@@ -131,15 +132,16 @@ class CnnFetchService implements FetchServiceInterface
                     $progressCallback($processedCount, $maxFiles, "已處理 {$processedCount}/{$maxFiles} ({$percentage}%)");
                 }
 
-                // 再次檢查是否已達到 limit
-                if (null !== $limit && $processedCount >= $limit) {
+                // 再次檢查是否已達到 limit（只計算成功移動的檔案）
+                if (null !== $limit && $movedCount >= $limit) {
                     break;
                 }
             }
         }
 
         // Process remaining files
-        if (!empty($localFiles)) {
+        // 只有在未達到 limit 時才處理剩餘檔案
+        if (!empty($localFiles) && (null === $limit || $movedCount < $limit)) {
             $result = $this->processBatch(
                 $localFiles,
                 $gcsPath,
@@ -148,7 +150,7 @@ class CnnFetchService implements FetchServiceInterface
                 $groupBy,
                 $progressCallback,
                 $processedCount,
-                $totalFiles
+                $limit ?? $totalFiles
             );
             $processedCount += count($localFiles);
             $movedCount += $result['moved'];
