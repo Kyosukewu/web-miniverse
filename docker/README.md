@@ -1,105 +1,172 @@
-# Docker 部署文件
+# 🐳 Docker 配置
 
-本目錄包含所有 Docker 容器化部署相關的文件和腳本。
+本目錄包含 Miniverse 項目的 Docker 相關配置文件。
 
-## 📁 文件說明
+---
 
-### 部署文件
-- **[DEPLOYMENT_CHECKLIST.md](./DEPLOYMENT_CHECKLIST.md)** - 完整部署指南 ⭐ 先看這個
-  - 包含：主機需求、Docker 安裝、GitHub Token 設定、GCS 設定、完整部署步驟
-- **[UPDATE.md](./UPDATE.md)** - 程式碼更新/更版指南
-- **[DATABASE_ACCESS.md](./DATABASE_ACCESS.md)** - MySQL 資料庫存取指南
-
-### 部署腳本
-- **[deploy-ec2.sh](./deploy-ec2.sh)** - 自動化部署腳本（使用 Personal Access Token）
-- **[update.sh](./update.sh)** - 程式碼更新腳本
+## 📂 文件說明
 
 ### 配置文件
-- **[supervisord.conf](./supervisord.conf)** - Supervisord 主配置
-- **[supervisord.d/laravel-scheduler.conf](./supervisord.d/laravel-scheduler.conf)** - Laravel 排程任務配置
-- **[supervisord.d/php-fpm.conf](./supervisord.d/php-fpm.conf)** - PHP-FPM 配置
-- **[nginx.conf](./nginx.conf)** - Nginx 配置（可選）
+
+| 文件 | 說明 |
+|------|------|
+| `nginx.conf` | Nginx Web 服務器配置 |
+| `nginx-ssl.conf` | Nginx SSL/HTTPS 配置模板 |
+| `supervisord.conf` | Supervisor 主配置文件 |
+| `supervisord.d/php-fpm.conf` | PHP-FPM 進程管理配置 |
+| `supervisord.d/laravel-scheduler.conf` | Laravel 排程任務配置 |
+| `entrypoint.sh` | 容器啟動腳本 |
+
+### 文檔文件
+
+| 文件 | 說明 |
+|------|------|
+| `DATABASE_ACCESS.md` | 資料庫訪問指南（已移至 `docs/`） |
+| `DEPLOYMENT_CHECKLIST.md` | 部署檢查清單（已移至 `docs/`） |
+| `UPDATE.md` | 更新流程說明（已整合至主 README） |
+
+---
 
 ## 🚀 快速開始
 
-詳細說明請參考 [DEPLOYMENT_CHECKLIST.md](./DEPLOYMENT_CHECKLIST.md) 和 [UPDATE.md](./UPDATE.md)
-
-### 首次部署
+### 啟動服務
 
 ```bash
-ssh -i your-key.pem ec2-user@your-ec2-ip
-export GITHUB_TOKEN=your_token_here
-git clone https://${GITHUB_TOKEN}@github.com/username/web-miniverse.git /tmp/web-miniverse
-cp /tmp/web-miniverse/docker/deploy-ec2.sh ./ && chmod +x deploy-ec2.sh
-export GITHUB_REPO=https://github.com/username/web-miniverse.git
-sudo ./deploy-ec2.sh
-```
+# 在項目根目錄執行
+docker compose up -d
 
-### 更新程式碼
-
-```bash
-cd /var/www/html/web-miniverse
-GITHUB_TOKEN=your_token ./docker/update.sh
-```
-
-## 📋 部署流程
-
-1. **準備環境**
-   - 主機（EC2 或其他）
-   - GitHub Personal Access Token（如果需要從 GitHub 部署）
-   - 環境變數設定（.env）
-
-2. **執行部署**
-   - 使用 `deploy-ec2.sh` 自動化部署
-   - 或參考 [DEPLOYMENT_CHECKLIST.md](./DEPLOYMENT_CHECKLIST.md) 手動部署
-
-3. **驗證部署**
-   - 檢查容器狀態
-   - 檢查排程任務
-   - 測試網站功能
-
-4. **後續更新**
-   - 使用 `update.sh` 更新程式碼
-   - 參考 [UPDATE.md](./UPDATE.md) 了解詳細流程
-
-## 📚 詳細文件
-
-- **完整部署指南**: [DEPLOYMENT_CHECKLIST.md](./DEPLOYMENT_CHECKLIST.md) - 包含所有部署步驟、GitHub Token 設定、GCS 設定
-- **更新流程**: [UPDATE.md](./UPDATE.md) - 程式碼更新和更版
-- **資料庫存取**: [DATABASE_ACCESS.md](./DATABASE_ACCESS.md) - MySQL 資料庫存取指南
-- **網址設定**: [../DOMAIN_SETUP.md](../DOMAIN_SETUP.md) - 網址設定指南（miniverse.com.tw）
-
-## 🔧 常用命令
-
-```bash
-# 查看容器狀態
-docker-compose ps
+# 查看狀態
+docker compose ps
 
 # 查看日誌
-docker-compose logs -f
-
-# 進入容器
-docker-compose exec app bash
-
-# 執行 Artisan 命令
-docker-compose exec app php artisan [command]
-
-# 檢查排程任務
-docker-compose exec app supervisorctl status
-
-# 存取資料庫（phpMyAdmin）
-# 訪問: http://your-ec2-ip:8080
-# 或使用命令列: docker-compose exec db mysql -u root -p web_miniverse
+docker compose logs -f app
 ```
+
+### 進入容器
+
+```bash
+# 進入 app 容器
+docker compose exec app bash
+
+# 執行 Artisan 指令
+docker compose exec app php artisan list
+```
+
+---
+
+## 📝 配置說明
+
+### Nginx 配置 (nginx.conf)
+
+主要配置項：
+
+- **FastCGI 緩衝**: 針對 GCS 代理路由禁用緩衝
+- **上傳限制**: `client_max_body_size 500M`
+- **超時設置**: `fastcgi_read_timeout 600s`
+- **GCS 代理**: `/gcs-proxy/` 路由的特殊處理
+
+### Supervisor 配置 (supervisord.conf)
+
+管理兩個主要進程：
+
+1. **PHP-FPM** - PHP 進程管理
+   ```ini
+   [program:php-fpm]
+   command=php-fpm -F
+   autostart=true
+   autorestart=true
+   ```
+
+2. **Laravel Scheduler** - 定時任務調度
+   ```ini
+   [program:laravel-scheduler]
+   command=...
+   autostart=true
+   autorestart=true
+   stopwaitsecs=300  # 優雅關閉，等待 5 分鐘
+   ```
+
+### Entrypoint 腳本 (entrypoint.sh)
+
+容器啟動時執行的腳本：
+
+1. 等待 MySQL 啟動
+2. 清除 Laravel 快取
+3. 檢查排程開關（`SCHEDULER_ENABLED`）
+4. 創建必要目錄並設置權限
+5. 啟動 Supervisor
+
+---
+
+## 🔧 常見操作
+
+### 重啟服務
+
+```bash
+# 重啟 app 容器
+docker compose restart app
+
+# 重啟特定進程
+docker compose exec app supervisorctl restart laravel-scheduler:*
+docker compose exec app supervisorctl restart php-fpm:*
+```
+
+### 查看日誌
+
+```bash
+# 容器日誌
+docker compose logs -f app
+
+# Supervisor 日誌
+docker compose exec app tail -f /var/log/supervisor/supervisord.log
+
+# Laravel Scheduler 日誌
+docker compose exec app tail -f /var/log/supervisor/laravel-scheduler-stdout.log
+```
+
+### 修改配置
+
+修改配置後需要重建容器：
+
+```bash
+# 1. 修改配置文件（如 nginx.conf）
+
+# 2. 重建並重啟
+docker compose down
+docker compose up -d --build
+```
+
+---
+
+## 📚 相關文檔
+
+- [主 README](../README.md) - 項目主文檔
+- [部署指南](../docs/DEPLOYMENT_CHECKLIST.md) - 完整部署流程
+- [資料庫訪問](../docs/DATABASE_ACCESS.md) - 資料庫管理
+- [優雅關閉](../docs/GRACEFUL_SHUTDOWN.md) - 安全停止和維護
+
+---
 
 ## ⚠️ 注意事項
 
-1. **Token 安全**: 不要將 Token 寫在腳本中，使用環境變數
-2. **備份**: 更新前務必備份資料庫
-3. **測試**: 建議在測試環境先測試更新
-4. **監控**: 更新後持續監控日誌
+1. **權限設置**
+   - `entrypoint.sh` 會自動設置 `storage/` 和 `bootstrap/cache/` 權限
+   - 不要手動修改容器內的權限
 
-## 🆘 需要幫助？
+2. **環境變數**
+   - 所有環境變數通過 `.env` 文件和 `docker-compose.yml` 配置
+   - 修改後需要重啟容器
 
-- 查看 [DEPLOYMENT_CHECKLIST.md](./DEPLOYMENT_CHECKLIST.md) 的「常見問題」章節
-- 查看 [UPDATE.md](./UPDATE.md) 的「常見問題」章節
+3. **日誌輪換**
+   - Supervisor 日誌會自動輪換（保留 10 個，每個 50MB）
+   - Laravel 日誌需要定期清理
+
+4. **優雅關閉**
+   - Supervisor 配置了 300 秒的優雅關閉時間
+   - 確保排程任務可以完成後再停止容器
+
+---
+
+<div align="center">
+  <sub>🐳 Docker 配置確保了一致的運行環境</sub>
+</div>
