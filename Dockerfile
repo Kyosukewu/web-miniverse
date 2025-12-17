@@ -46,8 +46,8 @@ COPY . /var/www/html/web-miniverse
 
 # 設定權限
 RUN chown -R www-data:www-data /var/www/html/web-miniverse \
-    && chmod -R 755 /var/www/html/web-miniverse/storage \
-    && chmod -R 755 /var/www/html/web-miniverse/bootstrap/cache
+    && chmod -R 775 /var/www/html/web-miniverse/storage \
+    && chmod -R 775 /var/www/html/web-miniverse/bootstrap/cache
 
 # 複製 Supervisord 配置
 COPY docker/supervisord.conf /etc/supervisor/supervisord.conf

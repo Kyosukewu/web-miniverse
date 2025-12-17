@@ -39,9 +39,20 @@ else
     echo "   設置 SCHEDULER_ENABLED=true 以啟用排程"
 fi
 
-# 創建必要的目錄
-echo "創建必要的目錄..."
+# 創建必要的目錄並設置權限
+echo "創建必要的目錄並設置權限..."
 mkdir -p /var/log/supervisor /var/run
+mkdir -p /var/www/html/web-miniverse/storage/framework/{sessions,views,cache}
+mkdir -p /var/www/html/web-miniverse/storage/logs
+mkdir -p /var/www/html/web-miniverse/bootstrap/cache
+
+# 設置 Laravel 目錄權限
+chown -R www-data:www-data /var/www/html/web-miniverse/storage
+chown -R www-data:www-data /var/www/html/web-miniverse/bootstrap/cache
+chmod -R 775 /var/www/html/web-miniverse/storage
+chmod -R 775 /var/www/html/web-miniverse/bootstrap/cache
+
+# 設置 Supervisor 日誌權限
 chown -R www-data:www-data /var/log/supervisor
 chmod 755 /var/log/supervisor
 
