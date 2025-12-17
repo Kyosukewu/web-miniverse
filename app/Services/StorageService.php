@@ -67,7 +67,17 @@ class StorageService
                 }
             } else {
                 // No basePath, use sourceName directly
-                $sourcePath = $sourceName;
+                // For GCS, try lowercase first (common convention: cnn, ap, rt)
+                if ('gcs' === $storageType) {
+                    $lowerSourcePath = strtolower($sourceName);
+                    if ($disk->exists($lowerSourcePath)) {
+                        $sourcePath = $lowerSourcePath;
+                    } else {
+                        $sourcePath = $sourceName;
+                    }
+                } else {
+                    $sourcePath = $sourceName;
+                }
             }
 
             if (!$disk->exists($sourcePath)) {
@@ -289,7 +299,17 @@ class StorageService
                 }
             } else {
                 // No basePath, use sourceName directly
-                $sourcePath = $sourceName;
+                // For GCS, try lowercase first (common convention: cnn, ap, rt)
+                if ('gcs' === $storageType) {
+                    $lowerSourcePath = strtolower($sourceName);
+                    if ($disk->exists($lowerSourcePath)) {
+                        $sourcePath = $lowerSourcePath;
+                    } else {
+                        $sourcePath = $sourceName;
+                    }
+                } else {
+                    $sourcePath = $sourceName;
+                }
             }
 
             if (!$disk->exists($sourcePath)) {
@@ -411,7 +431,17 @@ class StorageService
                 }
             } else {
                 // No basePath, use sourceName directly
-                $sourcePath = $sourceName;
+                // For GCS, try lowercase first (common convention: cnn, ap, rt)
+                if ('gcs' === $storageType) {
+                    $lowerSourcePath = strtolower($sourceName);
+                    if ($disk->exists($lowerSourcePath)) {
+                        $sourcePath = $lowerSourcePath;
+                    } else {
+                        $sourcePath = $sourceName;
+                    }
+                } else {
+                    $sourcePath = $sourceName;
+                }
             }
 
             if (!$disk->exists($sourcePath)) {
@@ -455,14 +485,9 @@ class StorageService
                         $sourceId = pathinfo($relativePath, PATHINFO_FILENAME);
                     }
 
-                    // Build relative_path: include basePath if provided, otherwise use detectedSourceName/relativePath
-                    if ($normalizedBasePath) {
-                        // Include basePath in relative_path to reflect actual file location
-                        $fullRelativePath = rtrim($normalizedBasePath, '/') . '/' . $relativePath;
-                    } else {
-                        // No basePath, use detectedSourceName/relativePath
-                        $fullRelativePath = $detectedSourceName . '/' . $relativePath;
-                    }
+                    // For GCS, file_path is already the correct path (e.g., cnn/CNNA-ST1-xxx/file.xml)
+                    // Use file_path as-is for both file_path and relative_path
+                    $fullRelativePath = $file;
 
                     $fileName = basename($file);
                     $fileVersion = $this->extractFileVersion($fileName);

@@ -74,6 +74,12 @@ class AnalyzeDocumentCommand extends Command
         $documentFiles = $this->filterLatestVersionDocuments($documentFiles);
         $this->info("過濾後剩餘 " . count($documentFiles) . " 個文檔檔案（每個 source_id 只保留最新版本）");
 
+        // 如果設定了 limit，只處理前 N 個檔案
+        if (count($documentFiles) > $limit) {
+            $documentFiles = array_slice($documentFiles, 0, $limit);
+            $this->info("根據 --limit 參數，將處理前 {$limit} 個文檔");
+        }
+
         // 處理文檔檔案
         $processedCount = 0;
         $skippedCount = 0;
@@ -276,7 +282,7 @@ class AnalyzeDocumentCommand extends Command
                     ]);
 
                     $updated = $this->videoRepository->update($videoId, $updateData);
-
+                    
                     if (!$updated) {
                         throw new \Exception('更新影片 metadata 失敗: ' . $videoId);
                     }
@@ -556,7 +562,7 @@ class AnalyzeDocumentCommand extends Command
         if (!empty($mp4FilePaths['broadcast']) || !empty($mp4FilePaths['proxy'])) {
             $documentDir = dirname($documentFile['file_path']);
             $disk = $this->storageService->getDisk($storageType);
-
+            
             // 首先嘗試廣播
             if (!empty($mp4FilePaths['broadcast'])) {
                 $xmlMp4FilePath = $documentDir . '/' . $mp4FilePaths['broadcast'];
@@ -566,7 +572,7 @@ class AnalyzeDocumentCommand extends Command
                     return $xmlMp4Path;
                 }
             }
-
+            
             // 嘗試代理
             if (!empty($mp4FilePaths['proxy'])) {
                 $xmlMp4FilePath = $documentDir . '/' . $mp4FilePaths['proxy'];
@@ -643,14 +649,14 @@ class AnalyzeDocumentCommand extends Command
     {
         try {
             $disk = $this->storageService->getDisk($storageType);
-
+            
             // 從檔案路徑獲取目錄路徑
             $fileDir = dirname($filePath);
-
+            
             if (!$disk->exists($fileDir)) {
                 return null;
             }
-
+            
             // 如果提供了文檔檔案，則從中提取唯一識別碼
             $targetUniqueId = null;
             if (null !== $documentFile) {
@@ -659,10 +665,10 @@ class AnalyzeDocumentCommand extends Command
 
             // 列出同目錄中的所有檔案
             $files = $disk->files($fileDir);
-
+            
             $mp4Files = [];
             $matchingMp4Files = [];
-
+            
             // 收集所有 MP4 檔案及其大小和版本
             foreach ($files as $file) {
                 $extension = strtolower(pathinfo($file, PATHINFO_EXTENSION));
@@ -670,8 +676,8 @@ class AnalyzeDocumentCommand extends Command
                     continue;
                 }
 
-                try {
-                    $size = $disk->size($file);
+                    try {
+                        $size = $disk->size($file);
                     $fileName = basename($file);
                     $fileVersion = $this->storageService->extractFileVersion($fileName);
 
@@ -682,13 +688,13 @@ class AnalyzeDocumentCommand extends Command
                     $mp4UniqueId = $this->extractUniqueIdFromFileName($fileName);
 
                     $mp4Data = [
-                        'file' => $file,
-                        'size' => $size,
+                            'file' => $file,
+                            'size' => $size,
                         'name' => $fileName,
                         'version' => $fileVersion,
                         'version_number' => $versionNumber,
                         'unique_id' => $mp4UniqueId,
-                    ];
+                        ];
 
                     $mp4Files[] = $mp4Data;
 
@@ -696,21 +702,21 @@ class AnalyzeDocumentCommand extends Command
                     if (null !== $targetUniqueId && $mp4UniqueId === $targetUniqueId) {
                         $matchingMp4Files[] = $mp4Data;
                     }
-                } catch (\Exception $e) {
+                    } catch (\Exception $e) {
                     // 跳過無法讀取的檔案
-                    Log::warning('[AnalyzeDocumentCommand] 無法取得 MP4 檔案大小', [
-                        'file' => $file,
-                        'error' => $e->getMessage(),
-                    ]);
-                    continue;
+                        Log::warning('[AnalyzeDocumentCommand] 無法取得 MP4 檔案大小', [
+                            'file' => $file,
+                            'error' => $e->getMessage(),
+                        ]);
+                        continue;
                 }
             }
-
+            
             // 如果未找到 MP4 檔案，返回 null
             if (empty($mp4Files)) {
                 return null;
             }
-
+            
             // 如果我們有匹配的 MP4 檔案，優先處理它們
             $filesToSort = !empty($matchingMp4Files) ? $matchingMp4Files : $mp4Files;
 
@@ -723,9 +729,9 @@ class AnalyzeDocumentCommand extends Command
                 // 如果版本相等（或兩者都是 -1），按大小排序（較小優先）
                 return $a['size'] <=> $b['size'];
             });
-
+            
             $bestMp4 = $filesToSort[0];
-
+            
             // 根據儲存類型構建路徑
             // 對於 GCS，使用 file_path 格式（相對於 bucket 根目錄的完整路徑）
             // 對於其他儲存類型，使用 relative_path 格式
@@ -735,7 +741,7 @@ class AnalyzeDocumentCommand extends Command
                 return ltrim($bestMp4['file'], '/');
             } else {
                 // 使用相對路徑格式
-                $mp4Dir = dirname($relativePath);
+            $mp4Dir = dirname($relativePath);
                 return $mp4Dir . '/' . $bestMp4['name'];
             }
         } catch (\Exception $e) {
