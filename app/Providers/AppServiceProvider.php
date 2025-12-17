@@ -27,6 +27,11 @@ class AppServiceProvider extends ServiceProvider
     {
         Paginator::useBootstrapFour();
 
+        // Force HTTPS URLs in production
+        if ($this->app->environment('production') || request()->server('HTTP_X_FORWARDED_PROTO') === 'https') {
+            \URL::forceScheme('https');
+        }
+
         // 註冊 GCS 驅動
         Storage::extend('gcs', function ($app, $config) {
             // 構建 StorageClient 配置

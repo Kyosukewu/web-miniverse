@@ -9,6 +9,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class GcsProxyController extends Controller
 {
@@ -23,16 +24,17 @@ class GcsProxyController extends Controller
      *
      * @param Request $request
      * @param string $path
-     * @return Response
+     * @return Response|StreamedResponse
      */
-    public function stream(Request $request, string $path): Response
+    public function stream(Request $request, string $path): Response|StreamedResponse
     {
         try {
-            // Decode the path
-            $filePath = urldecode($path);
+            // Path is already decoded by Laravel routing
+            $filePath = $path;
             
             Log::info('[GcsProxyController] 請求 GCS 檔案', [
-                'path' => $filePath,
+                'raw_path' => $path,
+                'file_path' => $filePath,
                 'download' => $request->has('download'),
             ]);
 
@@ -43,23 +45,21 @@ class GcsProxyController extends Controller
             if (!$disk->exists($filePath)) {
                 Log::warning('[GcsProxyController] 檔案不存在', [
                     'path' => $filePath,
+                    'tried_paths' => [$filePath, urldecode($filePath)],
                 ]);
                 return response('File not found', 404);
-            }
-
-            // Get file content
-            $content = $disk->get($filePath);
-            if (false === $content) {
-                Log::error('[GcsProxyController] 無法讀取檔案', [
-                    'path' => $filePath,
-                ]);
-                return response('Unable to read file', 500);
             }
 
             // Get file metadata
             $mimeType = $disk->mimeType($filePath);
             $size = $disk->size($filePath);
             $fileName = basename($filePath);
+
+            Log::info('[GcsProxyController] 開始處理檔案', [
+                'path' => $filePath,
+                'size' => number_format($size / 1024 / 1024, 2) . ' MB',
+                'mime_type' => $mimeType,
+            ]);
 
             // Prepare headers
             $headers = [
@@ -79,17 +79,29 @@ class GcsProxyController extends Controller
 
             // Handle range requests for video streaming
             if ($request->hasHeader('Range')) {
-                return $this->handleRangeRequest($request, $content, $size, $headers);
+                return $this->handleRangeRequestStream($request, $disk, $filePath, $size, $headers);
             }
 
-            Log::info('[GcsProxyController] 檔案成功返回', [
+            // Use stream response for large files (more memory efficient)
+            $stream = $disk->readStream($filePath);
+            if (false === $stream) {
+                Log::error('[GcsProxyController] 無法開啟檔案串流', [
+                    'path' => $filePath,
+                ]);
+                return response('Unable to read file', 500);
+            }
+
+            Log::info('[GcsProxyController] 檔案串流成功建立', [
                 'path' => $filePath,
-                'size' => $size,
-                'mime_type' => $mimeType,
             ]);
 
-            // Return full content
-            return response($content, 200, $headers);
+            // Return stream response
+            return response()->stream(function () use ($stream) {
+                fpassthru($stream);
+                if (is_resource($stream)) {
+                    fclose($stream);
+                }
+            }, 200, $headers);
         } catch (\Exception $e) {
             Log::error('[GcsProxyController] 處理請求失敗', [
                 'path' => $path,
@@ -101,21 +113,33 @@ class GcsProxyController extends Controller
     }
 
     /**
-     * Handle HTTP Range request for video streaming.
+     * Handle HTTP Range request for video streaming using stream.
      *
      * @param Request $request
-     * @param string $content
+     * @param \Illuminate\Contracts\Filesystem\Filesystem $disk
+     * @param string $filePath
      * @param int $fileSize
      * @param array<string, mixed> $headers
-     * @return Response
+     * @return Response|StreamedResponse
      */
-    private function handleRangeRequest(Request $request, string $content, int $fileSize, array $headers): Response
+    private function handleRangeRequestStream(Request $request, $disk, string $filePath, int $fileSize, array $headers): Response|StreamedResponse
     {
         $range = $request->header('Range');
         
         // Parse range header (e.g., "bytes=0-1023")
         if (!preg_match('/bytes=(\d+)-(\d*)/', $range, $matches)) {
-            return response($content, 200, $headers);
+            // Invalid range, return full content
+            $stream = $disk->readStream($filePath);
+            if (false === $stream) {
+                return response('Unable to read file', 500);
+            }
+            
+            return response()->stream(function () use ($stream) {
+                fpassthru($stream);
+                if (is_resource($stream)) {
+                    fclose($stream);
+                }
+            }, 200, $headers);
         }
 
         $start = (int) $matches[1];
@@ -129,20 +153,52 @@ class GcsProxyController extends Controller
         }
 
         $length = $end - $start + 1;
-        $partialContent = substr($content, $start, $length);
 
         Log::info('[GcsProxyController] 返回部分內容 (Range Request)', [
             'start' => $start,
             'end' => $end,
-            'length' => $length,
-            'total_size' => $fileSize,
+            'length' => number_format($length / 1024, 2) . ' KB',
+            'total_size' => number_format($fileSize / 1024 / 1024, 2) . ' MB',
         ]);
 
         // Update headers for partial content
         $headers['Content-Length'] = $length;
         $headers['Content-Range'] = "bytes {$start}-{$end}/{$fileSize}";
 
-        return response($partialContent, 206, $headers);
+        // Open stream and seek to start position
+        $stream = $disk->readStream($filePath);
+        if (false === $stream) {
+            return response('Unable to read file', 500);
+        }
+
+        return response()->stream(function () use ($stream, $start, $length) {
+            // Seek to start position
+            fseek($stream, $start);
+            
+            // Read and output the requested range
+            $remaining = $length;
+            $chunkSize = 8192; // 8KB chunks
+            
+            while ($remaining > 0 && !feof($stream)) {
+                $readSize = min($chunkSize, $remaining);
+                $data = fread($stream, $readSize);
+                if (false === $data) {
+                    break;
+                }
+                echo $data;
+                $remaining -= strlen($data);
+                
+                // Flush output buffer
+                if (ob_get_level() > 0) {
+                    ob_flush();
+                }
+                flush();
+            }
+            
+            if (is_resource($stream)) {
+                fclose($stream);
+            }
+        }, 206, $headers);
     }
 }
 
