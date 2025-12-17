@@ -46,11 +46,17 @@ mkdir -p /var/www/html/web-miniverse/storage/framework/{sessions,views,cache}
 mkdir -p /var/www/html/web-miniverse/storage/logs
 mkdir -p /var/www/html/web-miniverse/bootstrap/cache
 
-# 設置 Laravel 目錄權限
-chown -R www-data:www-data /var/www/html/web-miniverse/storage
-chown -R www-data:www-data /var/www/html/web-miniverse/bootstrap/cache
-chmod -R 775 /var/www/html/web-miniverse/storage
-chmod -R 775 /var/www/html/web-miniverse/bootstrap/cache
+# 設置 Laravel 目錄權限（但不修改 .gitignore 文件）
+# 使用 find 來精確控制權限修改範圍
+find /var/www/html/web-miniverse/storage -type d -exec chmod 775 {} \;
+find /var/www/html/web-miniverse/storage -type f ! -name '.gitignore' -exec chmod 664 {} \;
+find /var/www/html/web-miniverse/storage -type f ! -name '.gitignore' -exec chown www-data:www-data {} \;
+find /var/www/html/web-miniverse/storage -type d -exec chown www-data:www-data {} \;
+
+find /var/www/html/web-miniverse/bootstrap/cache -type d -exec chmod 775 {} \;
+find /var/www/html/web-miniverse/bootstrap/cache -type f ! -name '.gitignore' -exec chmod 664 {} \;
+find /var/www/html/web-miniverse/bootstrap/cache -type f ! -name '.gitignore' -exec chown www-data:www-data {} \;
+find /var/www/html/web-miniverse/bootstrap/cache -type d -exec chown www-data:www-data {} \;
 
 # 設置 Supervisor 日誌權限
 chown -R www-data:www-data /var/log/supervisor
