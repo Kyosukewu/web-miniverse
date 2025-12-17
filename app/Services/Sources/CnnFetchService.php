@@ -137,7 +137,8 @@ class CnnFetchService implements FetchServiceInterface
                     $progressCallback,
                     $movedCount,
                     $limit ?? $totalFiles,
-                    $checkedCount
+                    $checkedCount,
+                    $limit
                 );
                 $checkedCount += count($localFiles);
                 $movedCount += $result['moved'];
@@ -156,6 +157,11 @@ class CnnFetchService implements FetchServiceInterface
                     );
                 }
 
+                // 檢查批次是否因達到 limit 而停止
+                if ($result['should_stop'] ?? false) {
+                    break;
+                }
+                
                 // 再次檢查是否已達到 limit（只計算成功移動的檔案）
                 if (null !== $limit && $movedCount >= $limit) {
                     break;
@@ -175,7 +181,8 @@ class CnnFetchService implements FetchServiceInterface
                 $progressCallback,
                 $movedCount,
                 $limit ?? $totalFiles,
-                $checkedCount
+                $checkedCount,
+                $limit
             );
             $checkedCount += count($localFiles);
             $movedCount += $result['moved'];
@@ -237,7 +244,8 @@ class CnnFetchService implements FetchServiceInterface
      * @param int $currentMoved 當前已成功移動的檔案數
      * @param int $totalFiles 總檔案數或 limit
      * @param int $currentChecked 當前已檢查的檔案數
-     * @return array{moved: int, skipped: int, errors: int}
+     * @param int|null $limit 處理上限（如果設定）
+     * @return array{moved: int, skipped: int, errors: int, should_stop: bool}
      */
     private function processBatch(
         array $files,
@@ -248,7 +256,8 @@ class CnnFetchService implements FetchServiceInterface
         ?callable $progressCallback,
         int $currentMoved,
         int $totalFiles,
-        int $currentChecked = 0
+        int $currentChecked = 0,
+        ?int $limit = null
     ): array {
         // Group files by selected method
         $groupedFiles = 'unique-id' === $groupBy
@@ -261,8 +270,16 @@ class CnnFetchService implements FetchServiceInterface
         $batchErrorCount = 0;
 
         $fileIndex = 0;
+        $shouldStop = false;
+        
         foreach ($groupedFiles as $uniqueId => $groupFiles) {
             foreach ($groupFiles as $file) {
+                // 如果已達到 limit，停止處理
+                if (null !== $limit && ($currentMoved + $batchMovedCount) >= $limit) {
+                    $shouldStop = true;
+                    break 2; // 跳出兩層循環
+                }
+                
                 $fileIndex++;
                 $currentCheckedNumber = $currentChecked + $fileIndex;
                 $currentMovedNumber = $currentMoved + $batchMovedCount;
