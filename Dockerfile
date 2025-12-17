@@ -43,8 +43,17 @@ RUN chown -R www-data:www-data /var/www/html/web-miniverse \
     && chmod -R 755 /var/www/html/web-miniverse/bootstrap/cache
 
 # 複製 Supervisord 配置
-COPY docker/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
-COPY docker/supervisord.d/ /etc/supervisor/conf.d/
+COPY docker/supervisord.conf /etc/supervisor/supervisord.conf
+COPY docker/supervisord.d/*.conf /etc/supervisor/conf.d/
+
+# 創建必要的目錄
+RUN mkdir -p /var/log/supervisor /var/run && \
+    chown -R www-data:www-data /var/log/supervisor && \
+    chmod -R 755 /var/log/supervisor
+
+# 複製並設置啟動腳本
+COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
 
 # 複製 PHP 配置（如果需要）
 # COPY docker/php.ini /usr/local/etc/php/conf.d/custom.ini
@@ -52,9 +61,9 @@ COPY docker/supervisord.d/ /etc/supervisor/conf.d/
 # 安裝應用依賴（如果需要在構建時安裝）
 # RUN composer install --no-dev --optimize-autoloader
 
-# 暴露端口（如果需要）
-# EXPOSE 9000
+# 暴露端口
+EXPOSE 9000
 
-# 啟動 Supervisord（管理 PHP-FPM 和 Laravel Scheduler）
-CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
+# 使用 entrypoint 腳本啟動
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 
