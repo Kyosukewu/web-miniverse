@@ -74,24 +74,28 @@ class AnalyzeDocumentCommand extends Command
         $documentFiles = $this->filterLatestVersionDocuments($documentFiles);
         $this->info("過濾後剩餘 " . count($documentFiles) . " 個文檔檔案（每個 source_id 只保留最新版本）");
 
-        // 如果設定了 limit，只處理前 N 個檔案
-        if (count($documentFiles) > $limit) {
-            $documentFiles = array_slice($documentFiles, 0, $limit);
-            $this->info("根據 --limit 參數，將處理前 {$limit} 個文檔");
+        if (null !== $limit) {
+            $this->info("將處理直到成功處理 {$limit} 個文檔為止");
         }
 
         // 處理文檔檔案
         $processedCount = 0;
         $skippedCount = 0;
         $errorCount = 0;
+        $checkedCount = 0; // 已檢查的檔案數量
 
+        // 使用總檔案數量建立進度條
         $progressBar = $this->output->createProgressBar(count($documentFiles));
         $progressBar->start();
 
         foreach ($documentFiles as $documentFile) {
-            if ($processedCount >= $limit) {
+            // 檢查是否已達到處理限制（只計算成功處理的）
+            if (null !== $limit && $processedCount >= $limit) {
+                $this->line("\n已達到處理限制 ({$limit} 個文檔)，停止處理");
                 break;
             }
+
+            $checkedCount++;
 
             try {
                 // 讀取文檔檔案內容
@@ -356,6 +360,7 @@ class AnalyzeDocumentCommand extends Command
         $this->table(
             ['狀態', '數量'],
             [
+                ['已檢查', $checkedCount],
                 ['已處理', $processedCount],
                 ['已跳過', $skippedCount],
                 ['錯誤', $errorCount],
