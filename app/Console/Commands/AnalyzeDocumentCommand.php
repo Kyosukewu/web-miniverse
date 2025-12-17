@@ -132,12 +132,20 @@ class AnalyzeDocumentCommand extends Command
                     continue;
                 }
 
-                // 確定 nas_path（優先使用與 XML 唯一識別碼匹配的同目錄 MP4，然後使用 XML 中的 MP4，最後回退到文檔路徑）
+                // 確定 nas_path（優先使用與 XML 唯一識別碼匹配的同目錄 MP4，然後使用 XML 中的 MP4）
                 $nasPath = $this->determineNasPath(
                     $storageType,
                     $documentFile,
                     $mp4FilePaths
                 );
+
+                // 如果找不到 MP4 檔案（nas_path 為 null 或指向 XML），跳過此文檔
+                if (null === $nasPath || str_ends_with(strtolower($nasPath), '.xml') || str_ends_with(strtolower($nasPath), '.txt')) {
+                    $this->line("\n⊘ 跳過（找不到對應的 MP4 檔案）: {$documentFile['file_name']}");
+                    $skippedCount++;
+                    $progressBar->advance();
+                    continue;
+                }
 
                 // 檢查影片是否已存在
                 $existingVideo = $this->videoRepository->getBySourceId(
@@ -537,15 +545,16 @@ class AnalyzeDocumentCommand extends Command
 
     /**
      * 確定影片記錄的 nas_path。
-     * 優先順序：1. 同目錄中的 MP4，2. XML 中的 MP4（如果存在），3. 文檔路徑。
+     * 優先順序：1. 同目錄中的 MP4，2. XML 中的 MP4（如果存在）。
+     * 如果找不到 MP4 檔案，返回 null。
      * 對於 GCS 儲存，確保路徑相對於 bucket 根目錄。
      *
      * @param string $storageType
      * @param array<string, mixed> $documentFile
      * @param array<string, string> $mp4FilePaths
-     * @return string
+     * @return string|null 返回 MP4 檔案路徑，如果找不到則返回 null
      */
-    private function determineNasPath(string $storageType, array $documentFile, array $mp4FilePaths): string
+    private function determineNasPath(string $storageType, array $documentFile, array $mp4FilePaths): ?string
     {
         // 優先順序 1：在同目錄中尋找最佳 MP4 檔案（如果可能，匹配 XML 的唯一識別碼）
         $bestMp4 = $this->findSmallestMp4InSameDirectory(
@@ -584,9 +593,8 @@ class AnalyzeDocumentCommand extends Command
             }
         }
 
-        // 優先順序 3：使用文檔路徑作為回退
-        // 對於 GCS，優先使用 file_path（完整路徑）而非 relative_path
-        return $this->normalizeStoragePath($storageType, $documentFile['file_path'] ?? $documentFile['relative_path'], $documentFile);
+        // 找不到任何 MP4 檔案，返回 null
+        return null;
     }
 
     /**
