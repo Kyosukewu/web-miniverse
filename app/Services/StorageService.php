@@ -76,7 +76,7 @@ class StorageService
                         $sourcePath = $sourceName;
                     }
                 } else {
-                    $sourcePath = $sourceName;
+                $sourcePath = $sourceName;
                 }
             }
 
@@ -440,7 +440,7 @@ class StorageService
                         $sourcePath = $sourceName;
                     }
                 } else {
-                    $sourcePath = $sourceName;
+                $sourcePath = $sourceName;
                 }
             }
 

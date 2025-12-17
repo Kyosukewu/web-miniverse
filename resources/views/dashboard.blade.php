@@ -177,6 +177,9 @@
                                             $videoUrl = $videoData['video_url'];
                                             $isYouTubeUrl = preg_match('/^https?:\/\/(www\.)?(youtube\.com|youtu\.be)/i', $videoUrl);
                                             $isFullUrl = preg_match('/^https?:\/\//i', $videoUrl);
+                                            // For GCS proxy URLs, add ?download parameter for download link
+                                            $isGcsProxy = str_contains($videoUrl, '/gcs-proxy/');
+                                            $downloadUrl = $isGcsProxy ? $videoUrl . '?download' : $videoUrl;
                                         @endphp
                                         @if($isYouTubeUrl)
                                             @php
@@ -202,7 +205,7 @@
                                         @elseif($isFullUrl)
                                             {{-- For other full URLs (direct video file URLs), use video tag --}}
                                             <div class="video-download-container">
-                                                <a href="{{ $videoUrl }}" download class="video-download-btn" title="下載影片">
+                                                <a href="{{ $downloadUrl }}" class="video-download-btn" title="下載影片">
                                                     <span class="btn-icon">⬇</span>
                                                     <span>下載</span>
                                                 </a>
@@ -210,12 +213,12 @@
                                             <video controls preload="metadata" width="100%" height="100%">
                                                 <source src="{{ $videoUrl }}" type="video/mp4">
                                                 您的瀏覽器不支援影片播放。
-                                                <a href="{{ $videoUrl }}" target="_blank" rel="noopener noreferrer">點擊下載影片</a>
+                                                <a href="{{ $downloadUrl }}" target="_blank" rel="noopener noreferrer">點擊下載影片</a>
                                             </video>
                                         @else
                                             {{-- For relative paths, use video tag with /media/ prefix --}}
                                             <div class="video-download-container">
-                                                <a href="{{ $videoUrl }}" download class="video-download-btn" title="下載影片">
+                                                <a href="{{ $downloadUrl }}" class="video-download-btn" title="下載影片">
                                                     <span class="btn-icon">⬇</span>
                                                     <span>下載</span>
                                                 </a>

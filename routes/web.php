@@ -18,6 +18,11 @@ Route::get('/', [DashboardController::class, 'index'])->name('dashboard.index');
 Route::get('/dashboard', [DashboardController::class, 'index']);
 Route::get('/export', [DashboardController::class, 'export'])->name('dashboard.export');
 
+// GCS Proxy route for video streaming/download
+Route::get('/gcs-proxy/{path}', [App\Http\Controllers\GcsProxyController::class, 'stream'])
+    ->where('path', '.*')
+    ->name('gcs.proxy');
+
 // Route to serve files from storage/app directory
 Route::get('/storage/app/{path}', function (string $path) {
     // Security: prevent path traversal attacks

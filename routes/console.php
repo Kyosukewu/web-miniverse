@@ -37,7 +37,7 @@ if ($schedulerEnabled) {
     Schedule::command('fetch:cnn --group-by=unique-id --keep-local')->everyThirtyMinutes()->onOneServer()->runInBackground();
 
     // CNN XML 文檔分析：每 10 分鐘執行一次（依賴 fetch:cnn 的結果）
-    Schedule::command('analyze:document --source=CNN --storage=gcs')->everyTenMinutes()->onOneServer()->runInBackground();
+    Schedule::command('analyze:document --source=CNN --storage=gcs --path=cnn')->everyTenMinutes()->onOneServer()->runInBackground();
 
     // CNN MP4 影片分析：每 15 分鐘執行一次（依賴 analyze:document 的結果）
     Schedule::command('analyze:video --source=CNN --storage=gcs')->everyFifteenMinutes()->onOneServer()->runInBackground();
