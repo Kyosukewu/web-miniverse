@@ -51,6 +51,9 @@ class AnalyzeVideoCommand extends Command
      */
     public function handle(): int
     {
+        // 提高記憶體限制以處理大型影片檔案
+        ini_set('memory_limit', '2048M');
+        
         $sourceName = $this->option('source') ? strtoupper($this->option('source')) : null;
         $storageType = strtolower($this->option('storage'));
         $limit = (int) $this->option('limit');
