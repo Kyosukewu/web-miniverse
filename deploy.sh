@@ -6,6 +6,7 @@
 #   ./deploy.sh --env=development # 開發環境快速重建
 #   ./deploy.sh --check           # 檢查排程狀態
 #   ./deploy.sh --rebuild         # 只重建容器
+#   ./deploy.sh --skip-build      # 跳過映像重建（只重啟容器）
 
 set -e  # 遇到錯誤立即停止
 
@@ -19,6 +20,7 @@ NC='\033[0m' # No Color
 # 預設值
 ENVIRONMENT="development"
 ACTION="deploy"
+SKIP_BUILD=false
 
 # 解析參數
 for arg in "$@"; do
@@ -32,6 +34,9 @@ for arg in "$@"; do
         --rebuild)
             ACTION="rebuild"
             ;;
+        --skip-build)
+            SKIP_BUILD=true
+            ;;
         --help)
             echo "用法: $0 [選項]"
             echo ""
@@ -40,11 +45,13 @@ for arg in "$@"; do
             echo "  --env=development    開發環境快速重建（預設）"
             echo "  --check              檢查排程狀態"
             echo "  --rebuild            只重建容器並測試"
+            echo "  --skip-build         跳過 Docker 映像重建（適用於只更新代碼）"
             echo "  --help               顯示此幫助訊息"
             echo ""
             echo "範例:"
             echo "  GITHUB_TOKEN=xxx ./deploy.sh --env=production"
             echo "  ./deploy.sh --env=development"
+            echo "  ./deploy.sh --skip-build  # 只更新代碼，不重建映像"
             echo "  ./deploy.sh --check"
             exit 0
             ;;
@@ -123,10 +130,16 @@ if [ "$ACTION" = "rebuild" ] || [ "$ENVIRONMENT" = "development" ]; then
     echo ""
 
     # 步驟 2：重建容器
-    echo -e "${YELLOW}步驟 2/10: 重建容器（這可能需要幾分鐘）...${NC}"
-    docker compose build --no-cache app
-    echo -e "${GREEN}✅ 容器重建完成${NC}"
-    echo ""
+    if [ "$SKIP_BUILD" = false ]; then
+        echo -e "${YELLOW}步驟 2/10: 重建容器（這可能需要幾分鐘）...${NC}"
+        docker compose build --no-cache app
+        echo -e "${GREEN}✅ 容器重建完成${NC}"
+        echo ""
+    else
+        echo -e "${YELLOW}步驟 2/10: 跳過容器重建（使用現有映像）${NC}"
+        echo -e "${BLUE}💡 如需重建映像，請移除 --skip-build 參數${NC}"
+        echo ""
+    fi
 
     # 步驟 3：啟動容器
     echo -e "${YELLOW}步驟 3/10: 啟動容器...${NC}"
@@ -268,14 +281,19 @@ if [ "$ENVIRONMENT" = "production" ]; then
     echo -e "${GREEN}✓ 權限設定完成${NC}"
 
     # 清理 Docker 資源
-    echo -e "\n${GREEN}🧹 清理未使用的 Docker 資源...${NC}"
-    docker system prune -a -f
-    echo -e "${GREEN}✓ 清理完成${NC}"
+    if [ "$SKIP_BUILD" = false ]; then
+        echo -e "\n${GREEN}🧹 清理未使用的 Docker 資源...${NC}"
+        docker system prune -a -f
+        echo -e "${GREEN}✓ 清理完成${NC}"
 
-    # 構建 Docker 映像檔
-    echo -e "\n${GREEN}🔨 構建 Docker 映像檔...${NC}"
-    docker compose build --no-cache
-    echo -e "${GREEN}✓ 構建完成${NC}"
+        # 構建 Docker 映像檔
+        echo -e "\n${GREEN}🔨 構建 Docker 映像檔...${NC}"
+        docker compose build --no-cache
+        echo -e "${GREEN}✓ 構建完成${NC}"
+    else
+        echo -e "\n${YELLOW}⊘ 跳過 Docker 資源清理和映像重建${NC}"
+        echo -e "${BLUE}💡 如需完整重建，請移除 --skip-build 參數${NC}"
+    fi
 
     # 停止舊容器
     echo -e "\n${GREEN}🛑 停止舊容器...${NC}"

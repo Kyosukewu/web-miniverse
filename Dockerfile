@@ -29,7 +29,7 @@ RUN pip3 install --break-system-packages yt-dlp
 RUN docker-php-ext-configure gd --with-freetype=/usr --with-jpeg=/usr
 
 # 安裝 PHP 擴展（移除 pdo_pgsql，只使用 MySQL）
-RUN docker-php-ext-install pdo_mysql mbstring exif pcntl bcmath gd zip
+RUN docker-php-ext-install pdo_mysql mbstring exif pcntl bcmath gd zip intl
 
 # 安裝 Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
