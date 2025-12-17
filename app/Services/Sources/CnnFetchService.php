@@ -85,7 +85,7 @@ class CnnFetchService implements FetchServiceInterface
         }
 
         // Step 2: Process files in batches
-        $processedCount = 0; // 總處理數量（用於進度顯示）
+        $checkedCount = 0;    // 已檢查的檔案數（包含跳過、移動、錯誤）
         $movedCount = 0;      // 成功移動的數量（用於 limit 檢查）
         $localFiles = [];
         $skippedCount = 0;
@@ -95,12 +95,12 @@ class CnnFetchService implements FetchServiceInterface
             // 如果設定了 limit，檢查是否已達到上限（只計算成功移動的檔案）
             if (null !== $limit && $movedCount >= $limit) {
                 if (null !== $progressCallback) {
-                    $progressCallback($processedCount, $limit, "已達到處理上限 ({$limit} 個檔案已移動)，停止處理");
+                    $progressCallback($movedCount, $limit, "已達到處理上限 ({$limit} 個檔案已移動)，停止處理");
                 }
                 Log::info('[CnnFetchService] 已達到處理上限，停止處理', [
                     'limit' => $limit,
                     'moved_count' => $movedCount,
-                    'processed_count' => $processedCount,
+                    'checked_count' => $checkedCount,
                 ]);
                 break;
             }
@@ -116,20 +116,25 @@ class CnnFetchService implements FetchServiceInterface
                     $keepLocal,
                     $groupBy,
                     $progressCallback,
-                    $processedCount,
-                    $limit ?? $totalFiles
+                    $movedCount,
+                    $limit ?? $totalFiles,
+                    $checkedCount
                 );
-                $processedCount += count($localFiles);
+                $checkedCount += count($localFiles);
                 $movedCount += $result['moved'];
                 $skippedCount += $result['skipped'];
                 $errorCount += $result['errors'];
                 $localFiles = []; // Clear batch to free memory
 
-                // Show batch progress
+                // Show batch progress（基於成功移動的數量）
                 $maxFiles = $limit ?? $totalFiles;
                 if (null !== $progressCallback && $maxFiles > 0) {
-                    $percentage = round(($processedCount / $maxFiles) * 100, 1);
-                    $progressCallback($processedCount, $maxFiles, "已處理 {$processedCount}/{$maxFiles} ({$percentage}%)");
+                    $percentage = round(($movedCount / $maxFiles) * 100, 1);
+                    $progressCallback(
+                        $movedCount, 
+                        $maxFiles, 
+                        "已檢查 {$checkedCount} 個 | 已移動 {$movedCount}/{$maxFiles} ({$percentage}%)"
+                    );
                 }
 
                 // 再次檢查是否已達到 limit（只計算成功移動的檔案）
@@ -149,17 +154,22 @@ class CnnFetchService implements FetchServiceInterface
                 $keepLocal,
                 $groupBy,
                 $progressCallback,
-                $processedCount,
-                $limit ?? $totalFiles
+                $movedCount,
+                $limit ?? $totalFiles,
+                $checkedCount
             );
-            $processedCount += count($localFiles);
+            $checkedCount += count($localFiles);
             $movedCount += $result['moved'];
             $skippedCount += $result['skipped'];
             $errorCount += $result['errors'];
         }
 
         if (null !== $progressCallback) {
-            $progressCallback($processedCount, $totalFiles, "本地檔案處理完成 (移動: {$movedCount}, 跳過: {$skippedCount}, 錯誤: {$errorCount})");
+            $progressCallback(
+                $movedCount, 
+                $totalFiles, 
+                "本地檔案處理完成 (已檢查: {$checkedCount}, 移動: {$movedCount}, 跳過: {$skippedCount}, 錯誤: {$errorCount})"
+            );
         }
 
         Log::info('[CnnFetchService] 檔案處理完成', [
@@ -205,8 +215,9 @@ class CnnFetchService implements FetchServiceInterface
      * @param bool $keepLocal
      * @param string $groupBy Grouping method: 'label' or 'unique-id'
      * @param callable|null $progressCallback
-     * @param int $currentProcessed
-     * @param int $totalFiles
+     * @param int $currentMoved 當前已成功移動的檔案數
+     * @param int $totalFiles 總檔案數或 limit
+     * @param int $currentChecked 當前已檢查的檔案數
      * @return array{moved: int, skipped: int, errors: int}
      */
     private function processBatch(
@@ -216,8 +227,9 @@ class CnnFetchService implements FetchServiceInterface
         bool $keepLocal,
         string $groupBy,
         ?callable $progressCallback,
-        int $currentProcessed,
-        int $totalFiles
+        int $currentMoved,
+        int $totalFiles,
+        int $currentChecked = 0
     ): array {
         // Group files by selected method
         $groupedFiles = 'unique-id' === $groupBy
@@ -225,22 +237,23 @@ class CnnFetchService implements FetchServiceInterface
             : $this->groupFilesByUniqueId($files);
 
         // Move files to GCS
-        $movedCount = 0;
-        $skippedCount = 0;
-        $errorCount = 0;
+        $batchMovedCount = 0;
+        $batchSkippedCount = 0;
+        $batchErrorCount = 0;
 
         $fileIndex = 0;
         foreach ($groupedFiles as $uniqueId => $groupFiles) {
             foreach ($groupFiles as $file) {
                 $fileIndex++;
-                $currentFileNumber = $currentProcessed + $fileIndex;
+                $currentCheckedNumber = $currentChecked + $fileIndex;
+                $currentMovedNumber = $currentMoved + $batchMovedCount;
 
                 try {
                     if ($dryRun) {
-                        $movedCount++;
+                        $batchMovedCount++;
                         // Show progress every 10 files or for first/last file in batch
                         if (null !== $progressCallback && (0 === ($fileIndex % 10) || 1 === $fileIndex || $fileIndex === count($files))) {
-                            $progressCallback($currentFileNumber, $totalFiles, "模擬移動: {$file['name']}");
+                            $progressCallback($currentMovedNumber, $totalFiles, "模擬移動: {$file['name']}");
                         }
                         continue;
                     }
@@ -248,11 +261,12 @@ class CnnFetchService implements FetchServiceInterface
                     $result = $this->moveSingleFileToGcs($file, $uniqueId, $gcsBasePath, $keepLocal, $dryRun);
 
                     if ($result['moved']) {
-                        $movedCount++;
+                        $batchMovedCount++;
+                        $currentMovedNumber = $currentMoved + $batchMovedCount;
                     } elseif ($result['skipped']) {
-                        $skippedCount++;
+                        $batchSkippedCount++;
                     } else {
-                        $errorCount++;
+                        $batchErrorCount++;
                     }
 
                     // Show progress every 10 files, on errors, or for first/last file in batch
@@ -263,17 +277,17 @@ class CnnFetchService implements FetchServiceInterface
                         $fileIndex === count($files)
                     )) {
                         $status = $result['moved'] ? '已移動' : ($result['skipped'] ? '已跳過' : '失敗');
-                        $progressCallback($currentFileNumber, $totalFiles, "{$status}: {$file['name']}");
+                        $progressCallback($currentMovedNumber, $totalFiles, "{$status}: {$file['name']}");
                     }
                 } catch (\Exception $e) {
-                    $errorCount++;
+                    $batchErrorCount++;
                     Log::error('[CnnFetchService] 處理檔案失敗', [
                         'file' => $file['name'],
                         'error' => $e->getMessage(),
                     ]);
 
                     if (null !== $progressCallback) {
-                        $progressCallback($currentFileNumber, $totalFiles, "錯誤: {$file['name']} - {$e->getMessage()}");
+                        $progressCallback($currentMovedNumber, $totalFiles, "錯誤: {$file['name']} - {$e->getMessage()}");
                     }
                 }
             }
@@ -283,16 +297,16 @@ class CnnFetchService implements FetchServiceInterface
         if (!$dryRun && count($files) >= 10) {
             Log::info('[CnnFetchService] 批次處理完成', [
                 'batch_size' => count($files),
-                'moved' => $movedCount,
-                'skipped' => $skippedCount,
-                'errors' => $errorCount,
+                'moved' => $batchMovedCount,
+                'skipped' => $batchSkippedCount,
+                'errors' => $batchErrorCount,
             ]);
         }
 
         return [
-            'moved' => $movedCount,
-            'skipped' => $skippedCount,
-            'errors' => $errorCount,
+            'moved' => $batchMovedCount,
+            'skipped' => $batchSkippedCount,
+            'errors' => $batchErrorCount,
         ];
     }
 
