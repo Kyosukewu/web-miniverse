@@ -41,6 +41,18 @@ yarn-error.log
 /storage/framework/views/*
 !/storage/framework/views/.gitkeep
 
+# 排除大型媒體檔案和暫存檔案（防止 Docker build context 過大）
+/storage/app/temp/*
+/storage/app/cnn/*
+/storage/app/public/*
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.flv
+*.wmv
+*.webm
+
 # Testing
 /coverage
 .phpunit.cache
