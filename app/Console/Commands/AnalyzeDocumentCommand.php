@@ -591,7 +591,7 @@ class AnalyzeDocumentCommand extends Command
 
     /**
      * 標準化 nas_path 的儲存路徑。
-     * 對於 GCS，確保路徑相對於 bucket 根目錄（使用 file_path 格式）。
+     * 對於 GCS，確保路徑相對於 bucket 根目錄（例如：cnn/CNNA-ST1-xxx/file.mp4）。
      * 對於其他儲存類型，使用 relative_path。
      *
      * @param string $storageType
@@ -601,34 +601,13 @@ class AnalyzeDocumentCommand extends Command
      */
     private function normalizeStoragePath(string $storageType, string $path, array $documentFile): string
     {
-        // 對於 GCS，使用 file_path 格式（相對於 bucket 根目錄的完整路徑）
+        // 對於 GCS，確保路徑格式為：cnn/CNNA-ST1-xxx/file.mp4
         if ('gcs' === $storageType) {
-            // 如果路徑已經是完整的 file_path（匹配 documentFile 的 file_path 結構），直接使用它
-            // 檢查路徑是否看起來像完整的 GCS 路徑（包含目錄結構）
-            if (str_contains($path, '/') && isset($documentFile['file_path'])) {
-                // 檢查路徑是否與 file_path 處於相同的目錄結構中
-                $documentDir = dirname($documentFile['file_path']);
-                $pathDir = dirname($path);
-
-                // 如果路徑處於相同的目錄結構中，按原樣使用路徑
-                if ($pathDir === $documentDir || str_starts_with($path, $documentDir)) {
-                    // 確保沒有前導斜線
-                    return ltrim($path, '/');
-                }
-
-                // 如果路徑是相對的（僅檔案名），從 documentFile 的目錄構建完整路徑
-                if (!str_contains($path, '/')) {
-                    $fullPath = $documentDir . '/' . $path;
-                    $disk = $this->storageService->getDisk($storageType);
-                    if ($disk->exists($fullPath)) {
-                        return ltrim($fullPath, '/');
-                    }
-                }
-            }
-
-            // 回退：使用提供的路徑，確保沒有前導斜線
-            // 這處理 relative_path 格式（例如，cnn/CNNA-ST1-xxx/file.mp4）
-            return ltrim($path, '/');
+            // 移除可能的前導斜線和 storage/app 前綴
+            $cleanPath = ltrim($path, '/');
+            $cleanPath = preg_replace('#^storage/app/#', '', $cleanPath);
+            
+            return $cleanPath;
         }
 
         // 對於其他儲存類型（nas、s3、local），使用 relative_path 格式

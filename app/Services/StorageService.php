@@ -29,6 +29,21 @@ class StorageService
     }
 
     /**
+     * Generate public URL for GCS file.
+     *
+     * @param string $path GCS path (e.g., cnn/CNNA-ST1-xxx/file.mp4)
+     * @return string Public URL
+     */
+    public function getGcsPublicUrl(string $path): string
+    {
+        $bucket = config('filesystems.disks.gcs.bucket');
+        $cleanPath = ltrim($path, '/');
+        
+        // GCS 公開 URL 格式
+        return "https://storage.googleapis.com/{$bucket}/{$cleanPath}";
+    }
+
+    /**
      * Scan for video files in storage.
      * For CNN: scans for MP4 files (both Broadcast Quality and Proxy Format).
      *
