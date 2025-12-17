@@ -210,8 +210,8 @@
                                                     <span>下載</span>
                                                 </a>
                                             </div>
-                                            <video controls preload="metadata" width="100%" height="100%">
-                                                <source src="{{ $videoUrl }}" type="video/mp4">
+                                            <video controls preload="none" width="100%" height="100%" data-lazy-video>
+                                                <source data-src="{{ $videoUrl }}" type="video/mp4">
                                                 您的瀏覽器不支援影片播放。
                                                 <a href="{{ $downloadUrl }}" target="_blank" rel="noopener noreferrer">點擊下載影片</a>
                                             </video>
@@ -223,10 +223,10 @@
                                                     <span>下載</span>
                                                 </a>
                                             </div>
-                                        <video controls preload="metadata" width="100%" height="100%">
-                                                <source src="{{ $videoUrl }}" type="video/mp4">
-                                            您的瀏覽器不支援影片播放。
-                                        </video>
+                                            <video controls preload="none" width="100%" height="100%" data-lazy-video>
+                                                <source data-src="{{ $videoUrl }}" type="video/mp4">
+                                                您的瀏覽器不支援影片播放。
+                                            </video>
                                         @endif
                                     @else
                                         <div class="video-placeholder">無影片預覽</div>

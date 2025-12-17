@@ -359,5 +359,59 @@
             }
         }
     });
+
+    // 視頻懶加載：只有當影片卡片展開且進入視口時才載入視頻
+    function setupLazyVideoLoading() {
+        const lazyVideos = document.querySelectorAll('[data-lazy-video]');
+        
+        if ('IntersectionObserver' in window) {
+            const videoObserver = new IntersectionObserver((entries, observer) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        const video = entry.target;
+                        const source = video.querySelector('source[data-src]');
+                        
+                        if (source && source.dataset.src) {
+                            // 載入視頻源
+                            source.src = source.dataset.src;
+                            source.removeAttribute('data-src');
+                            video.load(); // 觸發載入
+                            
+                            // 標記為已載入
+                            video.removeAttribute('data-lazy-video');
+                            observer.unobserve(video);
+                            
+                            console.log('視頻已載入:', source.src.substring(source.src.lastIndexOf('/') + 1));
+                        }
+                    }
+                });
+            }, {
+                rootMargin: '50px', // 提前 50px 開始載入
+                threshold: 0.1
+            });
+            
+            lazyVideos.forEach(video => videoObserver.observe(video));
+            
+            console.log(`已設置 ${lazyVideos.length} 個視頻的懶加載`);
+        } else {
+            // Fallback: 對於不支持 IntersectionObserver 的瀏覽器，立即載入所有視頻
+            lazyVideos.forEach(video => {
+                const source = video.querySelector('source[data-src]');
+                if (source && source.dataset.src) {
+                    source.src = source.dataset.src;
+                    source.removeAttribute('data-src');
+                    video.load();
+                }
+            });
+        }
+    }
+    
+    // 頁面載入完成後設置懶加載
+    document.addEventListener('DOMContentLoaded', setupLazyVideoLoading);
+    
+    // 如果已經載入完成（script 在 DOMContentLoaded 之後執行）
+    if (document.readyState === 'complete' || document.readyState === 'interactive') {
+        setupLazyVideoLoading();
+    }
 </script>
 

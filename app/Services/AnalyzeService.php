@@ -122,7 +122,14 @@ class AnalyzeService
             $videoPath = $this->nasVideoPath . '/' . $video->nas_path;
         }
 
-        Log::info('[AnalyzeService-VideoPipeline] 影片路徑', ['video_path' => $videoPath]);
+        // Track if this is a temporary file (needs cleanup)
+        $isTempFile = str_contains($videoPath, 'storage/app/temp/') || 
+                     str_contains($videoPath, '/tmp/');
+
+        Log::info('[AnalyzeService-VideoPipeline] 影片路徑', [
+            'video_path' => $videoPath,
+            'is_temp_file' => $isTempFile,
+        ]);
 
         // Check if video file exists
         if (!file_exists($videoPath)) {
@@ -229,6 +236,28 @@ class AnalyzeService
             );
 
             throw $e;
+        } finally {
+            // Clean up temporary file if it was downloaded from GCS/S3
+            if ($isTempFile && file_exists($videoPath)) {
+                try {
+                    $fileSize = filesize($videoPath);
+                    if (@unlink($videoPath)) {
+                        Log::info('[AnalyzeService-VideoPipeline] 臨時檔案已清理', [
+                            'path' => $videoPath,
+                            'size_mb' => round($fileSize / 1024 / 1024, 2),
+                        ]);
+                    } else {
+                        Log::warning('[AnalyzeService-VideoPipeline] 無法刪除臨時檔案', [
+                            'path' => $videoPath,
+                        ]);
+                    }
+                } catch (\Exception $cleanupException) {
+                    Log::error('[AnalyzeService-VideoPipeline] 清理臨時檔案時發生錯誤', [
+                        'path' => $videoPath,
+                        'error' => $cleanupException->getMessage(),
+                    ]);
+                }
+            }
         }
     }
 

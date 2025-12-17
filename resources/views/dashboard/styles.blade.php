@@ -747,6 +747,12 @@
         margin-bottom: 10px;
     }
 
+    /* 在 card-identity-meta 中的 info-row 佔滿整行，固定在第二排 */
+    .card-identity-meta .info-row {
+        flex-basis: 100%;
+        width: 100%;
+    }
+
     .info-label {
         font-weight: bold;
     }

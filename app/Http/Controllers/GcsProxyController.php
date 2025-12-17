@@ -83,16 +83,28 @@ class GcsProxyController extends Controller
             }
 
             // Use stream response for large files (more memory efficient)
-            $stream = $disk->readStream($filePath);
-            if (false === $stream) {
+            try {
+                $stream = $disk->readStream($filePath);
+            } catch (\Exception $e) {
+                Log::error('[GcsProxyController] readStream 異常', [
+                    'path' => $filePath,
+                    'error' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString(),
+                ]);
+                return response('Unable to read file: ' . $e->getMessage(), 500);
+            }
+            
+            if (false === $stream || !is_resource($stream)) {
                 Log::error('[GcsProxyController] 無法開啟檔案串流', [
                     'path' => $filePath,
+                    'stream_type' => gettype($stream),
                 ]);
                 return response('Unable to read file', 500);
             }
 
             Log::info('[GcsProxyController] 檔案串流成功建立', [
                 'path' => $filePath,
+                'stream_resource' => is_resource($stream),
             ]);
 
             // Return stream response
@@ -166,13 +178,30 @@ class GcsProxyController extends Controller
         $headers['Content-Range'] = "bytes {$start}-{$end}/{$fileSize}";
 
         // Open stream and seek to start position
-        $stream = $disk->readStream($filePath);
-        if (false === $stream) {
+        try {
+            $stream = $disk->readStream($filePath);
+        } catch (\Exception $e) {
+            Log::error('[GcsProxyController] Range Request - readStream 異常', [
+                'path' => $filePath,
+                'error' => $e->getMessage(),
+            ]);
+            return response('Unable to read file: ' . $e->getMessage(), 500);
+        }
+        
+        if (false === $stream || !is_resource($stream)) {
+            Log::error('[GcsProxyController] Range Request - 無法開啟檔案串流', [
+                'path' => $filePath,
+                'stream_type' => gettype($stream),
+            ]);
             return response('Unable to read file', 500);
         }
 
         return response()->stream(function () use ($stream, $start, $length) {
             // Seek to start position
+            if (!is_resource($stream)) {
+                Log::error('[GcsProxyController] Stream became invalid before seeking');
+                return;
+            }
             fseek($stream, $start);
             
             // Read and output the requested range

@@ -42,6 +42,40 @@ if ($schedulerEnabled) {
     // CNN MP4 影片分析：每 15 分鐘執行一次（依賴 analyze:document 的結果）
     Schedule::command('analyze:video --source=CNN --storage=gcs --limit=10')->everyFifteenMinutes()->onOneServer()->runInBackground();
 
+    // 恢復卡住的分析任務：每 10 分鐘檢查一次（超時 1 小時未更新的任務）
+    Schedule::command('analysis:recover --timeout=3600')
+        ->everyTenMinutes()
+        ->onOneServer()
+        ->withoutOverlapping()
+        ->runInBackground();
+
+    // 清理臨時檔案：每小時執行，刪除 1 小時前的臨時檔案
+    Schedule::call(function () {
+        $tempDir = storage_path('app/temp');
+        if (is_dir($tempDir)) {
+            $deletedCount = 0;
+            $deletedSize = 0;
+            
+            $files = glob($tempDir . '/*');
+            foreach ($files as $file) {
+                if (is_file($file) && (time() - filemtime($file)) > 3600) { // 1 hour
+                    $size = filesize($file);
+                    if (@unlink($file)) {
+                        $deletedCount++;
+                        $deletedSize += $size;
+                    }
+                }
+            }
+            
+            if ($deletedCount > 0) {
+                Log::info('[Scheduler] 清理臨時檔案完成', [
+                    'deleted_count' => $deletedCount,
+                    'deleted_size_mb' => round($deletedSize / 1024 / 1024, 2),
+                ]);
+            }
+        }
+    })->hourly()->name('cleanup-temp-files')->onOneServer();
+
     // 清理過期影片資料（每天凌晨 2 點執行，刪除 14 天前的資料）
     Schedule::command('cleanup:old-videos --days=14 --field=analyzed_at --force')
         ->dailyAt('02:00')
