@@ -186,6 +186,14 @@ class AnalyzeVideoCommand extends Command
                     $fileSize = filesize($videoFilePath);
                     $fileSizeMB = round($fileSize / 1024 / 1024, 2);
                     
+                    // 儲存檔案大小到資料庫（如果尚未儲存）
+                    if (null === $video->file_size_mb) {
+                        $this->videoRepository->update($video->id, [
+                            'file_size_mb' => $fileSizeMB,
+                        ]);
+                        $video->file_size_mb = $fileSizeMB;
+                    }
+                    
                     // Gemini API 限制：300MB
                     $maxFileSizeMB = 300;
                     

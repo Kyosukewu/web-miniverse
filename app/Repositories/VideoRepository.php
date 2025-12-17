@@ -179,6 +179,7 @@ class VideoRepository
     /**
      * Get videos that are not completed (analysis_status != COMPLETED).
      * Optionally include completed videos for sources that support version checking.
+     * Excludes videos that exceed Gemini API file size limit (300MB).
      *
      * @param string|null $sourceName Optional source name filter
      * @param int $limit
@@ -211,6 +212,13 @@ class VideoRepository
         } else {
             $query->where('analysis_status', '!=', AnalysisStatus::COMPLETED);
         }
+
+        // 排除檔案過大的影片（超過 Gemini API 限制 300MB）
+        // 如果 file_size_mb 為 null，表示尚未檢查過，仍然包含在結果中
+        $query->where(function ($q) {
+            $q->whereNull('file_size_mb')
+              ->orWhere('file_size_mb', '<=', 300);
+        });
 
         return $query->orderBy('fetched_at', 'asc')
             ->limit($limit)

@@ -254,7 +254,11 @@
                                         </div>
                                     @else
                                         <div class="importance-section">
-                                            <p class="no-data">（影片內容尚未分析，無評分資訊）</p>
+                                            @if(isset($video->file_size_mb) && $video->file_size_mb > 300)
+                                                <p class="no-data file-size-exceeded">⚠️ 影片檔案超過大小限制無法分析（{{ number_format($video->file_size_mb, 2) }} MB > 300 MB）</p>
+                                            @else
+                                                <p class="no-data">（影片內容尚未分析，無評分資訊）</p>
+                                            @endif
                                         </div>
                                     @endif
                                     
@@ -284,6 +288,15 @@
                                     <span class="icon icon-version label">MP4 檔案版本:</span> 
                                     <span>{{ $video->mp4_file_version ?? 0 }}</span>
                                 </p>
+                                @if(isset($video->file_size_mb) && $video->file_size_mb !== null)
+                                    <p class="{{ $video->file_size_mb > 300 ? 'file-size-warning' : '' }}">
+                                        <span class="icon icon-size label">檔案大小:</span> 
+                                        <span>{{ number_format($video->file_size_mb, 2) }} MB</span>
+                                        @if($video->file_size_mb > 300)
+                                            <span class="size-warning-badge">超過限制</span>
+                                        @endif
+                                    </p>
+                                @endif
                                 @if(null !== $analysisResult && null !== $analysisResult['prompt_version'])
                                     <p class="prompt-version-info">
                                         <span class="icon icon-prompt label">影片 Prompt 版本:</span> 

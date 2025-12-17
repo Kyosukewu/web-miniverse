@@ -708,6 +708,33 @@
         font-style: italic;
     }
 
+    .no-data.file-size-exceeded {
+        color: #e67700;
+        font-weight: 500;
+        background-color: #fff3e0;
+        padding: 8px 12px;
+        border-radius: 4px;
+        border-left: 3px solid #ff9800;
+        font-style: normal;
+    }
+
+    .file-size-warning {
+        color: #e67700;
+        font-weight: 500;
+    }
+
+    .size-warning-badge {
+        display: inline-block;
+        background-color: #ff9800;
+        color: white;
+        padding: 2px 8px;
+        border-radius: 12px;
+        font-size: 0.75em;
+        font-weight: 600;
+        margin-left: 6px;
+        vertical-align: middle;
+    }
+
     .label {
         font-weight: bold;
     }
@@ -727,6 +754,7 @@
     .icon-status::before { content: "📊"; }
     .icon-version::before { content: "🔢"; }
     .icon-prompt::before { content: "💬"; }
+    .icon-size::before { content: "💾"; }
     .icon-error::before { content: "❗ "; color: #c82333; }
     .icon-duration::before { content: "⏱️"; }
     .icon-shotlist::before { content: "🎬"; }

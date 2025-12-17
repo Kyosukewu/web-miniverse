@@ -32,6 +32,7 @@ class Video extends Model
         'source_name',
         'source_id',
         'nas_path',
+        'file_size_mb',
         'xml_file_version',
         'mp4_file_version',
         'title',

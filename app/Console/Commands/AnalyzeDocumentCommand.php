@@ -217,6 +217,22 @@ class AnalyzeDocumentCommand extends Command
                         $createData['mp4_file_version'] = 0;
                     }
 
+                    // 嘗試取得 MP4 檔案大小（如果檔案存在）
+                    try {
+                        $videoFilePath = $this->storageService->getVideoFilePath($storageType, $nasPath);
+                        if (null !== $videoFilePath && file_exists($videoFilePath)) {
+                            $fileSize = filesize($videoFilePath);
+                            $fileSizeMB = round($fileSize / 1024 / 1024, 2);
+                            $createData['file_size_mb'] = $fileSizeMB;
+                        }
+                    } catch (\Exception $e) {
+                        // 如果無法取得檔案大小，不影響建立記錄，稍後會在 analyze:video 時補上
+                        Log::debug('[AnalyzeDocumentCommand] 無法取得檔案大小', [
+                            'nas_path' => $nasPath,
+                            'error' => $e->getMessage(),
+                        ]);
+                    }
+
                     $videoId = $this->videoRepository->findOrCreate($createData);
                 }
 
