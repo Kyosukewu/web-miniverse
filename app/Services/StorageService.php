@@ -724,18 +724,28 @@ class StorageService
      *
      * @param string $filePath File path in GCS (relative to bucket root)
      * @param string|null $sourceName Optional source name to get source-specific domain
+     * @param bool $signed Whether to generate signed URL (default false)
+     * @param int $expirationMinutes Signed URL expiration in minutes (default 60)
      * @return string|null
      */
-    public function getGcsUrl(string $filePath, ?string $sourceName = null): ?string
+    public function getGcsUrl(string $filePath, ?string $sourceName = null, bool $signed = false, int $expirationMinutes = 60): ?string
     {
         try {
+            // Clean path: remove /storage/app/ prefix if exists
+            $cleanPath = ltrim($filePath, '/');
+            $cleanPath = preg_replace('#^storage/app/#', '', $cleanPath);
+
+            // If signed URL is requested
+            if ($signed) {
+                return $this->getGcsSignedUrl($cleanPath, $expirationMinutes);
+            }
+
             // If source name is provided, check for source-specific domain
             if (null !== $sourceName) {
                 $sourceConfig = config("sources.{$sourceName}");
                 if (isset($sourceConfig['gcs_domain']) && !empty($sourceConfig['gcs_domain'])) {
                     $domain = rtrim($sourceConfig['gcs_domain'], '/');
-                    $path = ltrim($filePath, '/');
-                    return "{$domain}/{$path}";
+                    return "{$domain}/{$cleanPath}";
                 }
             }
 
@@ -743,20 +753,62 @@ class StorageService
             $gcsConfig = config('filesystems.disks.gcs');
             if (isset($gcsConfig['url']) && !empty($gcsConfig['url'])) {
                 $domain = rtrim($gcsConfig['url'], '/');
-                $path = ltrim($filePath, '/');
-                return "{$domain}/{$path}";
+                return "{$domain}/{$cleanPath}";
             }
 
             // Default: use storage.googleapis.com
             $bucket = $gcsConfig['bucket'] ?? 'default-bucket';
-            $cleanPath = ltrim($filePath, '/');
-            $cleanPath = preg_replace('#^storage/app/#', '', $cleanPath);
             return "https://storage.googleapis.com/{$bucket}/{$cleanPath}";
         } catch (\Exception $e) {
             Log::error('[StorageService] 生成 GCS URL 失敗', [
                 'file_path' => $filePath,
                 'source_name' => $sourceName,
                 'error' => $e->getMessage(),
+            ]);
+            return null;
+        }
+    }
+
+    /**
+     * Generate GCS signed URL (time-limited access link)
+     *
+     * @param string $filePath File path in GCS
+     * @param int $expirationMinutes Expiration time in minutes
+     * @return string|null
+     */
+    private function getGcsSignedUrl(string $filePath, int $expirationMinutes = 60): ?string
+    {
+        try {
+            // Get GCS configuration
+            $config = config('filesystems.disks.gcs');
+            
+            // Build StorageClient configuration
+            $clientConfig = [];
+            
+            if (!empty($config['project_id'])) {
+                $clientConfig['projectId'] = $config['project_id'];
+            }
+            
+            if (!empty($config['key_file']) && file_exists($config['key_file'])) {
+                $clientConfig['keyFilePath'] = $config['key_file'];
+            }
+            
+            // Create StorageClient instance
+            $storageClient = new \Google\Cloud\Storage\StorageClient($clientConfig);
+            $bucket = $storageClient->bucket($config['bucket']);
+            $object = $bucket->object($filePath);
+
+            // Generate signed URL with expiration
+            $signedUrl = $object->signedUrl(
+                new \DateTime("+{$expirationMinutes} minutes")
+            );
+
+            return $signedUrl;
+        } catch (\Exception $e) {
+            Log::error('[StorageService] 生成 GCS 簽名 URL 失敗', [
+                'file_path' => $filePath,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
             ]);
             return null;
         }

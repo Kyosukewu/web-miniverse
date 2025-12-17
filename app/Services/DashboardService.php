@@ -240,8 +240,8 @@ class DashboardService
         if ('CNN' === $video->source_name) {
             // Check if nas_path looks like a GCS path (starts with cnn/)
             if (str_starts_with($nasPath, 'cnn/')) {
-                // Generate GCS URL using StorageService
-                $gcsUrl = $this->storageService->getGcsUrl($nasPath, 'CNN');
+                // Generate GCS signed URL (valid for 60 minutes) using StorageService
+                $gcsUrl = $this->storageService->getGcsUrl($nasPath, 'CNN', true, 60);
                 if (null !== $gcsUrl) {
                     return $gcsUrl;
                 }
