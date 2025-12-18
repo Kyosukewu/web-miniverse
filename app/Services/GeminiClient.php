@@ -113,10 +113,11 @@ class GeminiClient
 
             return $cleanedJsonString;
         } catch (GuzzleException $e) {
+            $sanitizedError = $this->sanitizeErrorMessage($e->getMessage());
             Log::error('[Gemini Client] AnalyzeText - API 請求失敗', [
-                'error' => $e->getMessage(),
+                'error' => $sanitizedError,
             ]);
-            throw new \Exception('Gemini API 文本分析失敗: ' . $e->getMessage(), 0, $e);
+            throw new \Exception('Gemini API 文本分析失敗: ' . $sanitizedError, 0, $e);
         }
     }
 
@@ -254,11 +255,36 @@ class GeminiClient
 
             return $analysis;
         } catch (GuzzleException $e) {
+            $sanitizedError = $this->sanitizeErrorMessage($e->getMessage());
             Log::error('[Gemini Client] AnalyzeVideo - API 請求失敗', [
-                'error' => $e->getMessage(),
+                'error' => $sanitizedError,
             ]);
-            throw new \Exception('Gemini API 影片分析失敗: ' . $e->getMessage(), 0, $e);
+            throw new \Exception('Gemini API 影片分析失敗: ' . $sanitizedError, 0, $e);
         }
+    }
+
+    /**
+     * Sanitize error message to remove sensitive information like API keys.
+     *
+     * @param string $errorMessage
+     * @return string
+     */
+    private function sanitizeErrorMessage(string $errorMessage): string
+    {
+        // Remove API key from URL (key=xxx)
+        $sanitized = preg_replace('/key=[a-zA-Z0-9_-]+/', 'key=***', $errorMessage);
+        
+        // Remove full URLs with API keys
+        $sanitized = preg_replace(
+            '/https:\/\/generativelanguage\.googleapis\.com\/[^?]+\?key=[a-zA-Z0-9_-]+/',
+            'https://generativelanguage.googleapis.com/***?key=***',
+            $sanitized
+        );
+        
+        // Remove any standalone API key patterns (40+ character alphanumeric strings)
+        $sanitized = preg_replace('/\b[A-Za-z0-9_-]{30,}\b/', '***', $sanitized);
+        
+        return $sanitized;
     }
 
     /**

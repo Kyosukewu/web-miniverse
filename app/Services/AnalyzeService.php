@@ -42,6 +42,30 @@ class AnalyzeService
     }
 
     /**
+     * Sanitize error message to remove sensitive information like API keys.
+     *
+     * @param string $errorMessage
+     * @return string
+     */
+    private function sanitizeErrorMessage(string $errorMessage): string
+    {
+        // Remove API key from URL (key=xxx)
+        $sanitized = preg_replace('/key=[a-zA-Z0-9_-]+/', 'key=***', $errorMessage);
+        
+        // Remove full URLs with API keys
+        $sanitized = preg_replace(
+            '/https:\/\/generativelanguage\.googleapis\.com\/[^?]+\?key=[a-zA-Z0-9_-]+/',
+            'https://generativelanguage.googleapis.com/***?key=***',
+            $sanitized
+        );
+        
+        // Remove any standalone API key patterns (40+ character alphanumeric strings)
+        $sanitized = preg_replace('/\b[A-Za-z0-9_-]{30,}\b/', '***', $sanitized);
+        
+        return $sanitized;
+    }
+
+    /**
      * Execute text analysis pipeline.
      *
      * @param string $textContent
@@ -217,10 +241,11 @@ class AnalyzeService
 
             return $analysis;
         } catch (\Exception $e) {
-            $errorMsg = 'Gemini API 分析失敗: ' . $e->getMessage();
+            $sanitizedMessage = $this->sanitizeErrorMessage($e->getMessage());
+            $errorMsg = 'Gemini API 分析失敗: ' . $sanitizedMessage;
             Log::error('[AnalyzeService-VideoPipeline] ' . $errorMsg);
 
-            // Save error analysis result
+            // Save error analysis result (with sanitized message)
             $actualPromptVersion = $promptVersion ?? $this->promptService->getVideoAnalysisCurrentVersion();
             $this->analysisResultRepository->save([
                 'video_id' => $videoId,
@@ -387,10 +412,11 @@ class AnalyzeService
 
             return $analysis;
         } catch (\Exception $e) {
-            $errorMsg = 'Gemini API 完整分析失敗: ' . $e->getMessage();
+            $sanitizedMessage = $this->sanitizeErrorMessage($e->getMessage());
+            $errorMsg = 'Gemini API 完整分析失敗: ' . $sanitizedMessage;
             Log::error('[AnalyzeService-FullPipeline] ' . $errorMsg);
 
-            // Save error analysis result
+            // Save error analysis result (with sanitized message)
             $actualPromptVersion = $promptVersion ?? $this->promptService->getFullAnalysisCurrentVersion();
             $this->analysisResultRepository->save([
                 'video_id' => $videoId,

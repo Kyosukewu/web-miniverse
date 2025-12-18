@@ -261,5 +261,23 @@ class VideoRepository
     {
         return Video::where('id', $videoId)->update($data) > 0;
     }
+
+    /**
+     * Delete a video and its related records.
+     *
+     * @param int $videoId
+     * @return bool
+     */
+    public function delete(int $videoId): bool
+    {
+        $video = Video::find($videoId);
+        
+        if (null === $video) {
+            return false;
+        }
+
+        // Delete will cascade to analysis_results due to foreign key constraint
+        return $video->delete();
+    }
 }
 

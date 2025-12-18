@@ -233,7 +233,7 @@ class AnalyzeFullCommand extends Command
                     'xml'
                 );
 
-                // 建立新的影片記錄
+                // 準備記錄資料
                 $createData = [
                     'source_name' => $documentFile['source_name'],
                     'source_id' => $documentFile['source_id'],
@@ -251,7 +251,9 @@ class AnalyzeFullCommand extends Command
                     $createData['mp4_file_version'] = 0;
                 }
 
+                // 建立新的影片記錄
                 $videoId = $this->videoRepository->findOrCreate($createData);
+                $isNewlyCreated = true; // 標記為新建立的記錄
                 
                 $this->line("→ 建立新記錄: {$documentFile['source_id']} (Video ID: {$videoId})");
 
@@ -284,15 +286,25 @@ class AnalyzeFullCommand extends Command
                     'source_id' => $documentFile['source_id'],
                     'file_path' => $documentFile['file_path'],
                     'error' => $e->getMessage(),
+                    'video_id' => $videoId ?? null,
                 ]);
 
-                // 將狀態更新為失敗
-                if (isset($videoId)) {
-                    $this->videoRepository->updateAnalysisStatus(
-                        $videoId,
-                        AnalysisStatus::VIDEO_ANALYSIS_FAILED,
-                        new \DateTime()
-                    );
+                // 如果是剛建立的記錄且分析失敗，刪除該記錄
+                // 避免在資料庫中累積大量失敗的空記錄
+                if (isset($videoId) && isset($isNewlyCreated) && $isNewlyCreated) {
+                    try {
+                        $this->videoRepository->delete($videoId);
+                        $this->line("\n⚠️  已刪除失敗的新記錄 (Video ID: {$videoId})");
+                        Log::info('[AnalyzeFullCommand] 已刪除分析失敗的新記錄', [
+                            'video_id' => $videoId,
+                            'source_id' => $documentFile['source_id'],
+                        ]);
+                    } catch (\Exception $deleteException) {
+                        Log::error('[AnalyzeFullCommand] 刪除失敗記錄時發生錯誤', [
+                            'video_id' => $videoId,
+                            'error' => $deleteException->getMessage(),
+                        ]);
+                    }
                 }
 
                 $this->error("\n✗ 分析失敗: {$documentFile['file_name']} - {$e->getMessage()}");
