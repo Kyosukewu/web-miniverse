@@ -280,6 +280,17 @@ class AnalyzeFullCommand extends Command
 
                 $this->line("\n✓ 完成完整分析: {$documentFile['file_name']}");
                 $processedCount++;
+
+                // ========== Gemini API 速率限制 ==========
+                // 根據 https://docs.cloud.google.com/gemini/docs/quotas?hl=zh-tw
+                // 每秒請求數 (RPS) 限制：2 次/秒
+                // 為避免超過限制，每次請求後延遲 1 秒（保守策略）
+                // 這樣可確保 RPS < 1，遠低於限制值
+                if ($processedCount < $limit) { // 最後一個不需要延遲
+                    $this->line("⏱  等待 1 秒以符合 API 速率限制...");
+                    sleep(1);
+                }
+                // ========================================
             } catch (\Exception $e) {
                 $errorCount++;
                 Log::error('[AnalyzeFullCommand] 完整分析失敗', [

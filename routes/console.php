@@ -43,19 +43,34 @@ if ($schedulerEnabled) {
     // CNN 資源抓取：每 30 分鐘執行一次（優先執行，為後續分析提供資料）
     Schedule::command('fetch:cnn --group-by=unique-id --keep-local --limit=500 --file-type=all')->everyThirtyMinutes()->onOneServer()->runInBackground();
 
-    // CNN XML 文檔分析：每 10 分鐘執行一次（依賴 fetch:cnn 的結果）
+    // ========== Gemini API 配額限制說明 ==========
+    // 根據 https://docs.cloud.google.com/gemini/docs/quotas?hl=zh-tw
+    // - 每秒請求數 (RPS): 2 次/秒（每位使用者）
+    // - 每日請求數: 960 次/天
+    //
+    // 優化策略：
+    // 1. 降低 limit：從 10 降至 3-5，減少單次執行的請求數
+    // 2. 增加間隔：從 10-15 分鐘增至 30-60 分鐘
+    // 3. 命令內部添加延迟：確保每秒不超過 2 次請求
+    // 4. 每日總請求數控制：~600-700 次/天（留有餘裕）
+    // ============================================
+
+    // CNN XML 文檔分析：每 30 分鐘執行一次（依賴 fetch:cnn 的結果）
+    // 預計：48 次/天 × 3 個檔案 = 144 次請求/天
     if ($analyzeDocumentEnabled) {
-        Schedule::command('analyze:document --source=CNN --storage=gcs --path=cnn --limit=10')->everyTenMinutes()->onOneServer()->runInBackground();
+        Schedule::command('analyze:document --source=CNN --storage=gcs --path=cnn --limit=3')->everyThirtyMinutes()->onOneServer()->runInBackground();
     }
 
-    // CNN MP4 影片分析：每 15 分鐘執行一次（依賴 analyze:document 的結果）
+    // CNN MP4 影片分析：每 1 小時執行一次（依賴 analyze:document 的結果）
+    // 預計：24 次/天 × 5 個影片 = 120 次請求/天
     if ($analyzeVideoEnabled) {
-        Schedule::command('analyze:video --source=CNN --storage=gcs --limit=10')->everyFifteenMinutes()->onOneServer()->runInBackground();
+        Schedule::command('analyze:video --source=CNN --storage=gcs --limit=5')->hourly()->onOneServer()->runInBackground();
     }
 
-    // CNN 完整分析：每 15 分鐘執行一次
+    // CNN 完整分析：每 1 小時執行一次（建議使用此命令取代上述兩個）
+    // 預計：24 次/天 × 5 個影片 = 120 次請求/天
     if ($analyzeFullEnabled) {
-        Schedule::command('analyze:full --source=CNN --storage=gcs --limit=10')->everyFifteenMinutes()->onOneServer()->runInBackground();
+        Schedule::command('analyze:full --source=CNN --storage=gcs --limit=5')->hourly()->onOneServer()->runInBackground();
     }
 
     // 恢復卡住的分析任務：每 10 分鐘檢查一次（超時 1 小時未更新的任務）
