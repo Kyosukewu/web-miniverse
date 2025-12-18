@@ -43,6 +43,12 @@ return [
                 'v6' => storage_path('app/prompts/video_analysis/v6.txt'),
             ],
         ],
+        'full_analysis' => [
+            'current_version' => env('GEMINI_FULL_PROMPT_VERSION', 'v1'),
+            'versions' => [
+                'v1' => storage_path('app/prompts/full_analysis/v1.txt'),
+            ],
+        ],
     ],
 ];
 

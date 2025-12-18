@@ -10,8 +10,10 @@ class PromptService
 {
     private array $textFileAnalysisVersions;
     private array $videoAnalysisVersions;
+    private array $fullAnalysisVersions;
     private string $textFileAnalysisCurrentVersion;
     private string $videoAnalysisCurrentVersion;
+    private string $fullAnalysisCurrentVersion;
 
     /**
      * Create a new prompt service instance.
@@ -22,8 +24,10 @@ class PromptService
     {
         $this->textFileAnalysisVersions = $promptConfig['text_file_analysis']['versions'] ?? [];
         $this->videoAnalysisVersions = $promptConfig['video_analysis']['versions'] ?? [];
+        $this->fullAnalysisVersions = $promptConfig['full_analysis']['versions'] ?? [];
         $this->textFileAnalysisCurrentVersion = $promptConfig['text_file_analysis']['current_version'] ?? 'v3';
         $this->videoAnalysisCurrentVersion = $promptConfig['video_analysis']['current_version'] ?? 'v6';
+        $this->fullAnalysisCurrentVersion = $promptConfig['full_analysis']['current_version'] ?? 'v1';
     }
 
     /**
@@ -106,6 +110,47 @@ class PromptService
     public function getVideoAnalysisCurrentVersion(): string
     {
         return $this->videoAnalysisCurrentVersion;
+    }
+
+    /**
+     * Get full analysis prompt (text + video combined).
+     *
+     * @param string|null $version
+     * @return string
+     * @throws \Exception
+     */
+    public function getFullAnalysisPrompt(?string $version = null): string
+    {
+        $versionKey = $version ?? $this->fullAnalysisCurrentVersion;
+
+        if (!isset($this->fullAnalysisVersions[$versionKey])) {
+            Log::warning('[PromptService] FullAnalysis Prompt 版本未找到', [
+                'version' => $versionKey,
+                'available_versions' => array_keys($this->fullAnalysisVersions),
+            ]);
+            throw new \Exception("未在 versions map 中找到完整分析 Prompt 的檔案路徑 (版本: {$versionKey})");
+        }
+
+        $promptFilePath = $this->fullAnalysisVersions[$versionKey];
+
+        if ('' === $promptFilePath) {
+            Log::warning('[PromptService] FullAnalysis Prompt 版本的路徑為空', [
+                'version' => $versionKey,
+            ]);
+            throw new \Exception("完整分析 Prompt 版本 '{$versionKey}' 的檔案路徑為空");
+        }
+
+        return $this->readPromptFile($promptFilePath, $versionKey, 'full_analysis');
+    }
+
+    /**
+     * Get current full analysis prompt version.
+     *
+     * @return string
+     */
+    public function getFullAnalysisCurrentVersion(): string
+    {
+        return $this->fullAnalysisCurrentVersion;
     }
 
     /**

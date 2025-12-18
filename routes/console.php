@@ -36,6 +36,7 @@ $schedulerEnabled = env('SCHEDULER_ENABLED', false);
 // 個別任務開關：可獨立控制特定任務是否執行
 $analyzeDocumentEnabled = env('ANALYZE_DOCUMENT_ENABLED', true);
 $analyzeVideoEnabled = env('ANALYZE_VIDEO_ENABLED', true);
+$analyzeFullEnabled = env('ANALYZE_FULL_ENABLED', true);
 $cleanupOldVideosEnabled = env('CLEANUP_OLD_VIDEOS_ENABLED', true);
 
 if ($schedulerEnabled) {
@@ -50,6 +51,11 @@ if ($schedulerEnabled) {
     // CNN MP4 影片分析：每 15 分鐘執行一次（依賴 analyze:document 的結果）
     if ($analyzeVideoEnabled) {
         Schedule::command('analyze:video --source=CNN --storage=gcs --limit=10')->everyFifteenMinutes()->onOneServer()->runInBackground();
+    }
+
+    // CNN 完整分析：每 15 分鐘執行一次
+    if ($analyzeFullEnabled) {
+        Schedule::command('analyze:full --source=CNN --storage=gcs --limit=10')->everyFifteenMinutes()->onOneServer()->runInBackground();
     }
 
     // 恢復卡住的分析任務：每 10 分鐘檢查一次（超時 1 小時未更新的任務）

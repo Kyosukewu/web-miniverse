@@ -257,7 +257,7 @@
                                             @if(isset($video->file_size_mb) && $video->file_size_mb > 300)
                                                 <p class="no-data file-size-exceeded">⚠️ 影片檔案超過大小限制無法分析（{{ number_format($video->file_size_mb, 2) }} MB > 300 MB）</p>
                                             @else
-                                                <p class="no-data">（影片內容尚未分析，無評分資訊）</p>
+                                            <p class="no-data">（影片內容尚未分析，無評分資訊）</p>
                                             @endif
                                         </div>
                                     @endif
