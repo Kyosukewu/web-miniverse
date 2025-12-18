@@ -2,6 +2,7 @@
 
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schedule;
 
 /*
@@ -39,7 +40,7 @@ $cleanupOldVideosEnabled = env('CLEANUP_OLD_VIDEOS_ENABLED', true);
 
 if ($schedulerEnabled) {
     // CNN 資源抓取：每 30 分鐘執行一次（優先執行，為後續分析提供資料）
-    Schedule::command('fetch:cnn --group-by=unique-id --keep-local --limit=500')->everyThirtyMinutes()->onOneServer()->runInBackground();
+    Schedule::command('fetch:cnn --group-by=unique-id --keep-local --limit=500 --file-type=all')->everyThirtyMinutes()->onOneServer()->runInBackground();
 
     // CNN XML 文檔分析：每 10 分鐘執行一次（依賴 fetch:cnn 的結果）
     if ($analyzeDocumentEnabled) {

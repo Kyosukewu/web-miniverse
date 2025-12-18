@@ -101,6 +101,7 @@ class CnnFetchService implements FetchServiceInterface
         $localFiles = [];
         $skippedCount = 0;
         $errorCount = 0;
+        $errorDetails = [];   // 收集所有錯誤詳情
 
         foreach ($this->scanLocalFilesGenerator() as $file) {
             // 檔案類型過濾
@@ -144,6 +145,12 @@ class CnnFetchService implements FetchServiceInterface
                 $movedCount += $result['moved'];
                 $skippedCount += $result['skipped'];
                 $errorCount += $result['errors'];
+                
+                // 收集錯誤詳情
+                if (!empty($result['error_details'])) {
+                    $errorDetails = array_merge($errorDetails, $result['error_details']);
+                }
+                
                 $localFiles = []; // Clear batch to free memory
 
                 // Show batch progress（基於成功移動的數量）
@@ -188,6 +195,11 @@ class CnnFetchService implements FetchServiceInterface
             $movedCount += $result['moved'];
             $skippedCount += $result['skipped'];
             $errorCount += $result['errors'];
+            
+            // 收集錯誤詳情
+            if (!empty($result['error_details'])) {
+                $errorDetails = array_merge($errorDetails, $result['error_details']);
+            }
         }
 
         if (null !== $progressCallback) {
@@ -204,6 +216,33 @@ class CnnFetchService implements FetchServiceInterface
             'skipped_count' => $skippedCount,
             'error_count' => $errorCount,
         ]);
+
+        // 逐筆記錄所有錯誤詳情
+        if (!empty($errorDetails)) {
+            Log::error('[CnnFetchService] 檔案處理錯誤詳情', [
+                'total_errors' => count($errorDetails),
+                'summary' => '以下為所有錯誤的詳細資訊',
+            ]);
+
+            foreach ($errorDetails as $index => $error) {
+                Log::error('[CnnFetchService] 錯誤 #' . ($index + 1), [
+                    'file_name' => $error['file_name'],
+                    'file_path' => $error['file_path'],
+                    'unique_id' => $error['unique_id'] ?? 'N/A',
+                    'error_type' => $error['error_type'],
+                    'error_message' => $error['error_message'],
+                    'timestamp' => $error['timestamp'],
+                    'file_size' => $error['file_size'] ?? 'N/A',
+                    'gcs_target_path' => $error['gcs_target_path'] ?? 'N/A',
+                ]);
+            }
+
+            // 額外統計錯誤類型
+            $errorTypes = array_count_values(array_column($errorDetails, 'error_type'));
+            Log::warning('[CnnFetchService] 錯誤類型統計', [
+                'error_types' => $errorTypes,
+            ]);
+        }
 
         // Step 3: Return resource list from GCS
         if (null !== $progressCallback) {
@@ -245,7 +284,7 @@ class CnnFetchService implements FetchServiceInterface
      * @param int $totalFiles 總檔案數或 limit
      * @param int $currentChecked 當前已檢查的檔案數
      * @param int|null $limit 處理上限（如果設定）
-     * @return array{moved: int, skipped: int, errors: int, should_stop: bool}
+     * @return array{moved: int, skipped: int, errors: int, should_stop: bool, error_details: array}
      */
     private function processBatch(
         array $files,
@@ -268,6 +307,7 @@ class CnnFetchService implements FetchServiceInterface
         $batchMovedCount = 0;
         $batchSkippedCount = 0;
         $batchErrorCount = 0;
+        $batchErrorDetails = []; // 收集批次錯誤詳情
 
         $fileIndex = 0;
         $shouldStop = false;
@@ -303,6 +343,11 @@ class CnnFetchService implements FetchServiceInterface
                         $batchSkippedCount++;
                     } else {
                         $batchErrorCount++;
+                        
+                        // 記錄錯誤詳情
+                        if (isset($result['error_detail'])) {
+                            $batchErrorDetails[] = $result['error_detail'];
+                        }
                     }
 
                     // Show progress every 10 files, on errors, or for first/last file in batch
@@ -317,9 +362,24 @@ class CnnFetchService implements FetchServiceInterface
                     }
                 } catch (\Exception $e) {
                     $batchErrorCount++;
+                    
+                    // 記錄錯誤詳情
+                    $errorDetail = [
+                        'file_name' => $file['name'],
+                        'file_path' => $file['path'] ?? 'N/A',
+                        'unique_id' => $uniqueId,
+                        'error_type' => 'exception',
+                        'error_message' => $e->getMessage(),
+                        'timestamp' => date('Y-m-d H:i:s'),
+                        'file_size' => $file['size'] ?? null,
+                        'gcs_target_path' => rtrim($gcsBasePath, '/') . '/' . $uniqueId . '/' . $file['name'],
+                    ];
+                    $batchErrorDetails[] = $errorDetail;
+                    
                     Log::error('[CnnFetchService] 處理檔案失敗', [
                         'file' => $file['name'],
                         'error' => $e->getMessage(),
+                        'trace' => $e->getTraceAsString(),
                     ]);
 
                     if (null !== $progressCallback) {
@@ -343,6 +403,7 @@ class CnnFetchService implements FetchServiceInterface
             'moved' => $batchMovedCount,
             'skipped' => $batchSkippedCount,
             'errors' => $batchErrorCount,
+            'error_details' => $batchErrorDetails,
         ];
     }
 
@@ -354,7 +415,7 @@ class CnnFetchService implements FetchServiceInterface
      * @param string $gcsBasePath
      * @param bool $keepLocal If true, keep local file after uploading to GCS
      * @param bool $dryRun If true, do not actually upload or delete files
-     * @return array{moved: bool, skipped: bool, error: bool}
+     * @return array{moved: bool, skipped: bool, error: bool, error_detail?: array}
      */
     private function moveSingleFileToGcs(array $file, string $uniqueId, string $gcsBasePath, bool $keepLocal = false, bool $dryRun = false): array
     {
@@ -382,10 +443,28 @@ class CnnFetchService implements FetchServiceInterface
         $content = @file_get_contents($file['path']);
 
         if (false === $content) {
+            $errorDetail = [
+                'file_name' => $file['name'],
+                'file_path' => $file['path'],
+                'unique_id' => $uniqueId,
+                'error_type' => 'read_failed',
+                'error_message' => '無法讀取本地檔案',
+                'timestamp' => date('Y-m-d H:i:s'),
+                'file_size' => $file['size'] ?? null,
+                'gcs_target_path' => $targetPath,
+            ];
+            
             Log::error('[CnnFetchService] 無法讀取本地檔案', [
                 'local_path' => $file['path'],
+                'unique_id' => $uniqueId,
             ]);
-            return ['moved' => false, 'skipped' => false, 'error' => true];
+            
+            return [
+                'moved' => false, 
+                'skipped' => false, 
+                'error' => true,
+                'error_detail' => $errorDetail,
+            ];
         }
 
         // Upload to GCS
@@ -395,11 +474,29 @@ class CnnFetchService implements FetchServiceInterface
 
             // 驗證檔案是否真的上傳成功
             if (!$gcsDisk->exists($targetPath)) {
+                $errorDetail = [
+                    'file_name' => $file['name'],
+                    'file_path' => $file['path'],
+                    'unique_id' => $uniqueId,
+                    'error_type' => 'upload_verification_failed',
+                    'error_message' => '檔案上傳後驗證失敗，GCS 中不存在',
+                    'timestamp' => date('Y-m-d H:i:s'),
+                    'file_size' => $file['size'] ?? null,
+                    'gcs_target_path' => $targetPath,
+                ];
+                
                 Log::error('[CnnFetchService] 檔案上傳後驗證失敗，GCS 中不存在', [
                     'local_path' => $file['path'],
                     'gcs_path' => $targetPath,
+                    'unique_id' => $uniqueId,
                 ]);
-                return ['moved' => false, 'skipped' => false, 'error' => true];
+                
+                return [
+                    'moved' => false, 
+                    'skipped' => false, 
+                    'error' => true,
+                    'error_detail' => $errorDetail,
+                ];
             }
 
             Log::info('[CnnFetchService] 檔案成功上傳到 GCS', [
@@ -424,13 +521,31 @@ class CnnFetchService implements FetchServiceInterface
                 return ['moved' => true, 'skipped' => false, 'error' => false];
             }
         } catch (\Exception $e) {
+            $errorDetail = [
+                'file_name' => $file['name'],
+                'file_path' => $file['path'],
+                'unique_id' => $uniqueId,
+                'error_type' => 'upload_failed',
+                'error_message' => $e->getMessage(),
+                'timestamp' => date('Y-m-d H:i:s'),
+                'file_size' => $file['size'] ?? null,
+                'gcs_target_path' => $targetPath,
+            ];
+            
             Log::error('[CnnFetchService] 上傳到 GCS 失敗', [
                 'local_path' => $file['path'],
                 'gcs_path' => $targetPath,
+                'unique_id' => $uniqueId,
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
             ]);
-            return ['moved' => false, 'skipped' => false, 'error' => true];
+            
+            return [
+                'moved' => false, 
+                'skipped' => false, 
+                'error' => true,
+                'error_detail' => $errorDetail,
+            ];
         }
     }
 
@@ -818,13 +933,15 @@ class CnnFetchService implements FetchServiceInterface
         $xmlFiles = $this->storageService->scanXmlFiles($storageType, $sourceName, $gcsPath);
         $videoFiles = $this->storageService->scanVideoFiles($storageType, $sourceName, $gcsPath);
 
-        // Combine and deduplicate by source_id (unique identifier)
+        // Combine and deduplicate by source_id AND file type
+        // 改為按 source_id + type 組合去重，這樣同一個 source_id 的 XML 和 MP4 都會被保留
         $resources = [];
-        $processedIds = [];
+        $processedKeys = []; // 改用 source_id + type 組合作為 key
 
         foreach ($xmlFiles as $xmlFile) {
             $sourceId = $xmlFile['source_id'];
-            if (!isset($processedIds[$sourceId])) {
+            $key = $sourceId . '_xml'; // 組合 key
+            if (!isset($processedKeys[$key])) {
                 $resources[] = [
                     'source_id' => $sourceId,
                     'source_name' => $sourceName,
@@ -833,13 +950,14 @@ class CnnFetchService implements FetchServiceInterface
                     'relative_path' => $xmlFile['relative_path'],
                     'last_modified' => $xmlFile['last_modified'],
                 ];
-                $processedIds[$sourceId] = true;
+                $processedKeys[$key] = true;
             }
         }
 
         foreach ($videoFiles as $videoFile) {
             $sourceId = $videoFile['source_id'];
-            if (!isset($processedIds[$sourceId])) {
+            $key = $sourceId . '_video'; // 組合 key
+            if (!isset($processedKeys[$key])) {
                 $resources[] = [
                     'source_id' => $sourceId,
                     'source_name' => $sourceName,
@@ -848,12 +966,14 @@ class CnnFetchService implements FetchServiceInterface
                     'relative_path' => $videoFile['relative_path'],
                     'last_modified' => $videoFile['last_modified'],
                 ];
-                $processedIds[$sourceId] = true;
+                $processedKeys[$key] = true;
             }
         }
 
         Log::info('[CnnFetchService] 從 GCS 掃描到資源', [
-            'count' => count($resources),
+            'total_count' => count($resources),
+            'xml_count' => count($xmlFiles),
+            'video_count' => count($videoFiles),
             'storage_type' => $storageType,
         ]);
 
