@@ -53,17 +53,24 @@ RUN apt-get update && \
 # 安裝 yt-dlp（用於 YouTube 字幕下載）
 RUN pip3 install --break-system-packages --no-cache-dir yt-dlp
 
-# 安裝 PHP 擴展
-RUN docker-php-ext-install -j$(nproc) \
-    pdo_mysql \
-    mbstring \
-    exif \
-    pcntl \
-    bcmath \
-    gd \
-    zip \
-    intl \
-    && docker-php-source delete
+# 安裝 PHP 擴展（分步安裝以便於調試）
+# 基本擴展
+RUN docker-php-ext-install -j$(nproc) pdo_mysql
+RUN docker-php-ext-install -j$(nproc) mbstring
+RUN docker-php-ext-install -j$(nproc) exif
+RUN docker-php-ext-install -j$(nproc) pcntl
+RUN docker-php-ext-install -j$(nproc) bcmath
+RUN docker-php-ext-install -j$(nproc) zip
+RUN docker-php-ext-install -j$(nproc) intl
+
+# GD 擴展（需要顯式配置）
+RUN docker-php-ext-configure gd \
+    --with-freetype \
+    --with-jpeg \
+    && docker-php-ext-install -j$(nproc) gd
+
+# 清理 PHP 源碼以節省空間
+RUN docker-php-source delete
 
 # 安裝 Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer

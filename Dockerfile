@@ -30,19 +30,28 @@ RUN apt-get update && \
 # 安裝 yt-dlp（用於 YouTube 字幕下載）
 RUN pip3 install --break-system-packages --no-cache-dir yt-dlp
 
-# 安裝 PHP 擴展（移除 pdo_pgsql，只使用 MySQL）
-# GD 擴展在 PHP 8.4 中會自動檢測 freetype 和 jpeg
-# 安裝完成後刪除 PHP 源碼以節省空間
+# 安裝 PHP 擴展
+# 注意：GD 擴展需要顯式配置 freetype 和 jpeg 支持
+# 分步安裝以便於調試和錯誤定位
+
+# 安裝基本擴展（不需要特殊配置）
 RUN docker-php-ext-install -j$(nproc) \
     pdo_mysql \
     mbstring \
     exif \
     pcntl \
     bcmath \
-    gd \
     zip \
-    intl \
-    && docker-php-source delete
+    intl
+
+# 安裝 GD 擴展（需要顯式配置）
+RUN docker-php-ext-configure gd \
+    --with-freetype \
+    --with-jpeg \
+    && docker-php-ext-install -j$(nproc) gd
+
+# 清理 PHP 源碼以節省空間
+RUN docker-php-source delete
 
 # 安裝 Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer

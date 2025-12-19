@@ -129,82 +129,91 @@ if [ "$ACTION" = "rebuild" ] || [ "$ENVIRONMENT" = "development" ]; then
     echo -e "${GREEN}✅ 容器已停止${NC}"
     echo ""
 
-    # 步驟 2：重建容器
+    # 步驟 2：清理 Docker 空間（避免 "No space left on device" 錯誤）
     if [ "$SKIP_BUILD" = false ]; then
-        echo -e "${YELLOW}步驟 2/14: 重建容器（這可能需要幾分鐘）...${NC}"
-        docker compose build --no-cache app
+        echo -e "${YELLOW}步驟 2/14: 清理 Docker 構建緩存...${NC}"
+        echo -e "${BLUE}💡 這可以釋放 1-3GB 空間，避免構建失敗${NC}"
+        docker builder prune -af || echo -e "${YELLOW}⚠️  清理緩存時出現警告（可忽略）${NC}"
+        echo -e "${GREEN}✅ Docker 緩存已清理${NC}"
+        echo ""
+    fi
+
+    # 步驟 3：重建容器
+    if [ "$SKIP_BUILD" = false ]; then
+        echo -e "${YELLOW}步驟 3/14: 重建容器（這可能需要幾分鐘）...${NC}"
+        docker compose build --pull app
         echo -e "${GREEN}✅ 容器重建完成${NC}"
         echo ""
     else
-        echo -e "${YELLOW}步驟 2/14: 跳過容器重建（使用現有映像）${NC}"
+        echo -e "${YELLOW}步驟 3/14: 跳過容器重建（使用現有映像）${NC}"
         echo -e "${BLUE}💡 如需重建映像，請移除 --skip-build 參數${NC}"
         echo ""
     fi
 
-    # 步驟 3：啟動容器
-    echo -e "${YELLOW}步驟 3/14: 啟動容器...${NC}"
+    # 步驟 4：啟動容器
+    echo -e "${YELLOW}步驟 4/15: 啟動容器...${NC}"
     docker compose up -d
     echo -e "${GREEN}✅ 容器已啟動${NC}"
     echo ""
 
-    # 步驟 4：等待容器完全啟動
-    echo -e "${YELLOW}步驟 4/14: 等待容器完全啟動...${NC}"
+    # 步驟 5：等待容器完全啟動
+    echo -e "${YELLOW}步驟 5/15: 等待容器完全啟動...${NC}"
     sleep 10
     echo -e "${GREEN}✅ 容器啟動完成${NC}"
     echo ""
 
-    # 步驟 5：檢查容器狀態
-    echo -e "${YELLOW}步驟 5/14: 檢查容器狀態...${NC}"
+    # 步驟 6：檢查容器狀態
+    echo -e "${YELLOW}步驟 6/15: 檢查容器狀態...${NC}"
     docker compose ps
     echo ""
 
-    # 步驟 6：檢查 Supervisor 狀態
-    echo -e "${YELLOW}步驟 6/14: 檢查 Supervisor 狀態...${NC}"
+    # 步驟 7：檢查 Supervisor 狀態
+    echo -e "${YELLOW}步驟 7/15: 檢查 Supervisor 狀態...${NC}"
     docker compose exec app supervisorctl status
     echo ""
 
-    # 步驟 7：檢查 SCHEDULER_ENABLED
-    echo -e "${YELLOW}步驟 7/14: 檢查排程配置...${NC}"
+    # 步驟 8：檢查 SCHEDULER_ENABLED
+    echo -e "${YELLOW}步驟 8/15: 檢查排程配置...${NC}"
     docker compose exec app grep SCHEDULER_ENABLED /var/www/html/web-miniverse/.env 2>/dev/null || echo "⚠️  SCHEDULER_ENABLED 未設置"
     echo ""
 
-    # 步驟 8：安裝/更新 Composer 套件
-    echo -e "${YELLOW}步驟 8/14: 安裝/更新 Composer 套件...${NC}"
+    # 步驟 9：安裝/更新 Composer 套件
+    echo -e "${YELLOW}步驟 9/15: 安裝/更新 Composer 套件...${NC}"
     docker compose exec app composer install --optimize-autoloader
     echo -e "${GREEN}✅ Composer 套件已更新${NC}"
     echo ""
 
-    # 步驟 9：執行資料庫遷移
-    echo -e "${YELLOW}步驟 9/14: 執行資料庫遷移...${NC}"
+    # 步驟 10：執行資料庫遷移
+    echo -e "${YELLOW}步驟 10/15: 執行資料庫遷移...${NC}"
     docker compose exec app php artisan migrate --force
     echo -e "${GREEN}✅ 資料庫遷移完成${NC}"
     echo ""
 
-    # 步驟 10：清除快取
-    echo -e "${YELLOW}步驟 10/14: 清除應用快取...${NC}"
+    # 步驟 11：清除快取
+    echo -e "${YELLOW}步驟 11/15: 清除應用快取...${NC}"
     docker compose exec app php artisan config:clear
     docker compose exec app php artisan route:clear
     docker compose exec app php artisan view:clear
     echo -e "${GREEN}✅ 快取已清除${NC}"
     echo ""
 
-    # 步驟 11：優化自動載入
-    echo -e "${YELLOW}步驟 11/14: 優化自動載入...${NC}"
+    # 步驟 12：優化自動載入
+    echo -e "${YELLOW}步驟 12/15: 優化自動載入...${NC}"
     docker compose exec app composer dump-autoload --optimize
     echo -e "${GREEN}✅ 自動載入已優化${NC}"
     echo ""
 
-    # 步驟 12：列出排程任務
-    echo -e "${YELLOW}步驟 12/14: 列出所有排程任務...${NC}"
+    # 步驟 13：列出排程任務
+    echo -e "${YELLOW}步驟 13/15: 列出所有排程任務...${NC}"
     docker compose exec app php artisan schedule:list
     echo ""
 
-    # 步驟 13：手動執行一次排程測試
-    echo -e "${YELLOW}步驟 13/14: 手動執行排程測試...${NC}"
+    # 步驟 14：手動執行一次排程測試
+    echo -e "${YELLOW}步驟 14/15: 手動執行排程測試...${NC}"
     docker compose exec app php artisan schedule:run --verbose
     echo ""
 
-    # 步驟 14：查看排程日誌
+    # 步驟 15：查看排程日誌
     echo -e "${YELLOW}步驟 14/14: 查看排程日誌（最近 20 行）...${NC}"
     docker compose exec app tail -20 /var/log/supervisor/scheduler.log 2>/dev/null || echo "⚠️  日誌文件尚未生成"
     echo ""
@@ -308,13 +317,14 @@ if [ "$ENVIRONMENT" = "production" ]; then
 
     # 清理 Docker 資源
     if [ "$SKIP_BUILD" = false ]; then
-        echo -e "\n${GREEN}🧹 清理未使用的 Docker 資源...${NC}"
-        docker system prune -a -f
-        echo -e "${GREEN}✓ 清理完成${NC}"
+        echo -e "\n${GREEN}🧹 清理 Docker 構建緩存（避免空間不足錯誤）...${NC}"
+        echo -e "${BLUE}💡 這可以釋放 1-3GB 空間${NC}"
+        docker builder prune -af || echo -e "${YELLOW}⚠️  清理緩存時出現警告（可忽略）${NC}"
+        echo -e "${GREEN}✓ 構建緩存已清理${NC}"
 
         # 構建 Docker 映像檔
         echo -e "\n${GREEN}🔨 構建 Docker 映像檔...${NC}"
-        docker compose build --no-cache
+        docker compose build --pull
         echo -e "${GREEN}✓ 構建完成${NC}"
     else
         echo -e "\n${YELLOW}⊘ 跳過 Docker 資源清理和映像重建${NC}"
