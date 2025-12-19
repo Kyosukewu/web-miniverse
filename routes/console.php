@@ -93,20 +93,37 @@ if ($schedulerEnabled) {
         ->withoutOverlapping()
         ->runInBackground();
 
-    // 清理臨時檔案：每小時執行，刪除 1 小時前的臨時檔案
+    // 清理臨時檔案：每小時執行，刪除 2 小時前的臨時檔案
+    // 注意：保留時間設為 2 小時，避免與 analyze:full 執行時間衝突
+    // analyze:full 每小時執行一次，每次處理約 10 個檔案，每個檔案可能需要幾分鐘
+    // 設為 2 小時可確保即使 analyze:full 執行時間較長，也不會刪除正在使用的檔案
     Schedule::call(function () {
         $tempDir = storage_path('app/temp');
         if (is_dir($tempDir)) {
             $deletedCount = 0;
             $deletedSize = 0;
+            $retentionHours = 2; // 保留 2 小時
+            $retentionSeconds = $retentionHours * 3600;
             
             $files = glob($tempDir . '/*');
             foreach ($files as $file) {
-                if (is_file($file) && (time() - filemtime($file)) > 3600) { // 1 hour
-                    $size = filesize($file);
-                    if (@unlink($file)) {
-                        $deletedCount++;
-                        $deletedSize += $size;
+                if (is_file($file)) {
+                    // 檢查檔案是否正在被使用（通過檔案修改時間）
+                    $fileAge = time() - filemtime($file);
+                    
+                    // 只刪除超過保留時間的檔案
+                    if ($fileAge > $retentionSeconds) {
+                        // 額外檢查：如果檔案在最近 5 分鐘內被修改，可能是正在使用中，跳過
+                        $lastModified = filemtime($file);
+                        $recentlyModified = (time() - $lastModified) < 300; // 5 分鐘
+                        
+                        if (!$recentlyModified) {
+                            $size = filesize($file);
+                            if (@unlink($file)) {
+                                $deletedCount++;
+                                $deletedSize += $size;
+                            }
+                        }
                     }
                 }
             }
@@ -115,10 +132,11 @@ if ($schedulerEnabled) {
                 Log::info('[Scheduler] 清理臨時檔案完成', [
                     'deleted_count' => $deletedCount,
                     'deleted_size_mb' => round($deletedSize / 1024 / 1024, 2),
+                    'retention_hours' => $retentionHours,
                 ]);
             }
         }
-    })->hourly()->name('cleanup-temp-files')->onOneServer();
+    })->hourlyAt(15)->name('cleanup-temp-files')->onOneServer();
 
     // 清理過期影片資料（每天凌晨 2 點執行，刪除 14 天前的資料）
     if ($cleanupOldVideosEnabled) {
