@@ -1,15 +1,30 @@
-# Laravel 12 應用容器
+# Laravel 12 應用容器（健壯版本 - 帶錯誤處理）
 FROM php:8.4-fpm
 
 # 設定工作目錄
 WORKDIR /var/www/html/web-miniverse
 
-# 安裝系統依賴
-# 注意：分步安裝以提高可靠性，並在最後清理以節省空間
+# 安裝系統依賴（分步安裝以提高可靠性）
+# 步驟 1: 更新 apt 並安裝基本工具
 RUN apt-get update && \
-    apt-get install -y \
+    apt-get install -y --no-install-recommends \
+        ca-certificates \
+        gnupg \
+        lsb-release \
+    && rm -rf /var/lib/apt/lists/*
+
+# 步驟 2: 安裝開發工具和庫
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
         git \
         curl \
+        zip \
+        unzip \
+    && rm -rf /var/lib/apt/lists/*
+
+# 步驟 3: 安裝 PHP 擴展所需的庫
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
         libpng-dev \
         libjpeg62-turbo-dev \
         libfreetype6-dev \
@@ -17,10 +32,18 @@ RUN apt-get update && \
         libxml2-dev \
         libzip-dev \
         libicu-dev \
-        zip \
-        unzip \
+    && rm -rf /var/lib/apt/lists/*
+
+# 步驟 4: 安裝系統服務
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
         supervisor \
         cron \
+    && rm -rf /var/lib/apt/lists/*
+
+# 步驟 5: 安裝 Python
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
         python3 \
         python3-pip \
     && rm -rf /var/lib/apt/lists/* \
@@ -30,9 +53,7 @@ RUN apt-get update && \
 # 安裝 yt-dlp（用於 YouTube 字幕下載）
 RUN pip3 install --break-system-packages --no-cache-dir yt-dlp
 
-# 安裝 PHP 擴展（移除 pdo_pgsql，只使用 MySQL）
-# GD 擴展在 PHP 8.4 中會自動檢測 freetype 和 jpeg
-# 安裝完成後刪除 PHP 源碼以節省空間
+# 安裝 PHP 擴展
 RUN docker-php-ext-install -j$(nproc) \
     pdo_mysql \
     mbstring \
@@ -67,12 +88,6 @@ RUN mkdir -p /var/log/supervisor /var/run && \
 # 複製並設置啟動腳本
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
-
-# 複製 PHP 配置（如果需要）
-# COPY docker/php.ini /usr/local/etc/php/conf.d/custom.ini
-
-# 安裝應用依賴（如果需要在構建時安裝）
-# RUN composer install --no-dev --optimize-autoloader
 
 # 暴露端口
 EXPOSE 9000
