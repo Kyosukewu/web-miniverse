@@ -297,21 +297,22 @@
                                         @endif
                                     </p>
                                 @endif
-                                @if(null !== $analysisResult && null !== $analysisResult['prompt_version'])
+                                @php
+                                    // 優先使用 analysisResult 中的 prompt_version，如果不存在則使用 video 中的
+                                    $promptVersion = null;
+                                    if (null !== $analysisResult && null !== $analysisResult['prompt_version']) {
+                                        $promptVersion = $analysisResult['prompt_version'];
+                                    } elseif ($video->prompt_version) {
+                                        $promptVersion = $video->prompt_version;
+                                    }
+                                @endphp
+                                @if($promptVersion)
                                     <p class="prompt-version-info">
-                                        <span class="icon icon-prompt label">影片 Prompt 版本:</span> 
-                                        <span>{{ $analysisResult['prompt_version'] }}</span>
+                                        <span class="icon icon-prompt label">Prompt 版本:</span> 
+                                        <span>{{ $promptVersion }}</span>
                                     </p>
                                 @else
-                                    <p class="prompt-version-info"><span class="icon icon-prompt label">影片 Prompt 版本:</span> <span class="no-data">N/A</span></p>
-                                @endif
-                                @if($video->prompt_version)
-                                    <p class="prompt-version-info">
-                                        <span class="icon icon-prompt label">文本 Prompt 版本:</span> 
-                                        <span>{{ $video->prompt_version }}</span>
-                                    </p>
-                                @else
-                                    <p class="prompt-version-info"><span class="icon icon-prompt label">文本 Prompt 版本:</span> <span class="no-data">N/A</span></p>
+                                    <p class="prompt-version-info"><span class="icon icon-prompt label">Prompt 版本:</span> <span class="no-data">N/A</span></p>
                                 @endif
                             </div>
 
