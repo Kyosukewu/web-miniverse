@@ -4,8 +4,8 @@ FROM php:8.4-fpm
 # 設定工作目錄
 WORKDIR /var/www/html/web-miniverse
 
-# 安裝系統依賴
-RUN apt-get update && apt-get install -y \
+# 安裝系統依賴（合併 RUN 指令以減少層數和空間占用）
+RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     curl \
     libpng-dev \
@@ -21,13 +21,15 @@ RUN apt-get update && apt-get install -y \
     cron \
     python3 \
     python3-pip \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
 
 # 安裝 yt-dlp（用於 YouTube 字幕下載）
-RUN pip3 install --break-system-packages yt-dlp
+RUN pip3 install --break-system-packages --no-cache-dir yt-dlp
 
 # 安裝 PHP 擴展（移除 pdo_pgsql，只使用 MySQL）
 # GD 擴展在 PHP 8.4 中會自動檢測 freetype 和 jpeg
+# 安裝完成後刪除 PHP 源碼以節省空間
 RUN docker-php-ext-install -j$(nproc) \
     pdo_mysql \
     mbstring \
@@ -36,7 +38,8 @@ RUN docker-php-ext-install -j$(nproc) \
     bcmath \
     gd \
     zip \
-    intl
+    intl \
+    && docker-php-source delete
 
 # 安裝 Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer

@@ -264,13 +264,29 @@ class AnalyzeFullCommand extends Command
                     new \DateTime()
                 );
 
-                // 執行完整分析（文本 + 影片）
+                // ========== 重要：所有條件檢查已完成，準備發送 API 請求 ==========
+                // 條件 1: ✅ MP4 檔案存在
+                // 條件 2: ✅ videos 表中不存在記錄
+                // 條件 3: ✅ 檔案大小符合限制（≤ 300MB）
+                // ================================================================
+
+                // 執行完整分析（文本 + 影片）- 這裡會發送 Gemini API 請求
                 $analysisResult = $this->analyzeService->executeFullAnalysis(
                     $videoId,
                     $textContent,
                     $promptVersion,
                     $videoFilePath
                 );
+
+                // ========== Gemini API 速率限制（無論成功或失敗都需要延遲）==========
+                // 根據 https://docs.cloud.google.com/gemini/docs/quotas?hl=zh-tw
+                // 每秒請求數 (RPS) 限制：2 次/秒
+                // 為避免超過限制，每次 API 請求後延遲 1 秒（保守策略）
+                // 這樣可確保 RPS < 1，遠低於限制值
+                // 注意：延遲必須在 API 請求之後，無論成功或失敗
+                $this->line("⏱  等待 1 秒以符合 API 速率限制...");
+                sleep(1);
+                // ========================================
 
                 // 處理後釋放記憶體
                 unset($analysisResult);
@@ -280,17 +296,6 @@ class AnalyzeFullCommand extends Command
 
                 $this->line("\n✓ 完成完整分析: {$documentFile['file_name']}");
                 $processedCount++;
-
-                // ========== Gemini API 速率限制 ==========
-                // 根據 https://docs.cloud.google.com/gemini/docs/quotas?hl=zh-tw
-                // 每秒請求數 (RPS) 限制：2 次/秒
-                // 為避免超過限制，每次請求後延遲 1 秒（保守策略）
-                // 這樣可確保 RPS < 1，遠低於限制值
-                if ($processedCount < $limit) { // 最後一個不需要延遲
-                    $this->line("⏱  等待 1 秒以符合 API 速率限制...");
-                    sleep(1);
-                }
-                // ========================================
             } catch (\Exception $e) {
                 $errorCount++;
                 Log::error('[AnalyzeFullCommand] 完整分析失敗', [
@@ -299,6 +304,16 @@ class AnalyzeFullCommand extends Command
                     'error' => $e->getMessage(),
                     'video_id' => $videoId ?? null,
                 ]);
+
+                // ========== 如果已發送 API 請求但失敗，也需要延遲 ==========
+                // 確保無論成功或失敗，每次 API 請求後都有延遲
+                // 避免連續失敗時快速發送多個請求
+                if (isset($videoId)) {
+                    // 已建立記錄表示已通過所有條件檢查，可能已發送 API 請求
+                    $this->line("⏱  等待 1 秒以符合 API 速率限制（失敗後延遲）...");
+                    sleep(1);
+                }
+                // ========================================
 
                 // 如果是剛建立的記錄且分析失敗，刪除該記錄
                 // 避免在資料庫中累積大量失敗的空記錄
