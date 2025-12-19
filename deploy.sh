@@ -129,23 +129,51 @@ if [ "$ACTION" = "rebuild" ] || [ "$ENVIRONMENT" = "development" ]; then
     echo -e "${GREEN}✅ 容器已停止${NC}"
     echo ""
 
-    # 步驟 2：清理 Docker 空間（避免 "No space left on device" 錯誤）
+    # 步驟 2：檢查並清理 Docker 空間（避免 "No space left on device" 錯誤）
     if [ "$SKIP_BUILD" = false ]; then
-        echo -e "${YELLOW}步驟 2/14: 清理 Docker 構建緩存...${NC}"
-        echo -e "${BLUE}💡 這可以釋放 1-3GB 空間，避免構建失敗${NC}"
-        docker builder prune -af || echo -e "${YELLOW}⚠️  清理緩存時出現警告（可忽略）${NC}"
-        echo -e "${GREEN}✅ Docker 緩存已清理${NC}"
+        echo -e "${YELLOW}步驟 2/15: 檢查磁碟空間...${NC}"
+        DISK_USAGE=$(df -h / | awk 'NR==2 {print $5}' | sed 's/%//')
+        echo -e "${BLUE}💡 當前磁碟使用率: ${DISK_USAGE}%${NC}"
+        
+        if [ "$DISK_USAGE" -gt 90 ]; then
+            echo -e "${RED}⚠️  警告：磁碟使用率超過 90%，建議清理${NC}"
+        fi
+        echo ""
+        
+        echo -e "${YELLOW}步驟 2/15: 清理 Docker 構建緩存和未使用的資源...${NC}"
+        echo -e "${BLUE}💡 這可以釋放 1-5GB 空間，避免構建失敗${NC}"
+        
+        # 清理構建緩存（最重要）
+        echo -e "${BLUE}  → 清理構建緩存...${NC}"
+        docker builder prune -af 2>/dev/null || true
+        
+        # 清理未使用的鏡像（不包括正在使用的）
+        echo -e "${BLUE}  → 清理未使用的鏡像...${NC}"
+        docker image prune -af 2>/dev/null || true
+        
+        # 清理未使用的容器和網絡
+        echo -e "${BLUE}  → 清理未使用的容器和網絡...${NC}"
+        docker system prune -f 2>/dev/null || true
+        
+        # 顯示清理後的空間使用情況
+        echo ""
+        echo -e "${YELLOW}清理後的 Docker 空間使用：${NC}"
+        docker system df 2>/dev/null || true
+        
+        echo -e "${GREEN}✅ Docker 空間清理完成${NC}"
         echo ""
     fi
 
     # 步驟 3：重建容器
     if [ "$SKIP_BUILD" = false ]; then
-        echo -e "${YELLOW}步驟 3/14: 重建容器（這可能需要幾分鐘）...${NC}"
+        echo -e "${YELLOW}步驟 3/15: 重建容器（這可能需要幾分鐘）...${NC}"
+        echo -e "${BLUE}💡 如果仍然遇到空間不足錯誤，請手動執行：${NC}"
+        echo -e "${BLUE}   docker builder prune -af && docker system prune -af${NC}"
         docker compose build --pull app
         echo -e "${GREEN}✅ 容器重建完成${NC}"
         echo ""
     else
-        echo -e "${YELLOW}步驟 3/14: 跳過容器重建（使用現有映像）${NC}"
+        echo -e "${YELLOW}步驟 3/15: 跳過容器重建（使用現有映像）${NC}"
         echo -e "${BLUE}💡 如需重建映像，請移除 --skip-build 參數${NC}"
         echo ""
     fi
@@ -317,13 +345,42 @@ if [ "$ENVIRONMENT" = "production" ]; then
 
     # 清理 Docker 資源
     if [ "$SKIP_BUILD" = false ]; then
-        echo -e "\n${GREEN}🧹 清理 Docker 構建緩存（避免空間不足錯誤）...${NC}"
-        echo -e "${BLUE}💡 這可以釋放 1-3GB 空間${NC}"
-        docker builder prune -af || echo -e "${YELLOW}⚠️  清理緩存時出現警告（可忽略）${NC}"
-        echo -e "${GREEN}✓ 構建緩存已清理${NC}"
+        echo -e "\n${GREEN}🧹 檢查磁碟空間...${NC}"
+        DISK_USAGE=$(df -h / | awk 'NR==2 {print $5}' | sed 's/%//' || echo "0")
+        echo -e "${BLUE}💡 當前磁碟使用率: ${DISK_USAGE}%${NC}"
+        
+        if [ "$DISK_USAGE" -gt 90 ]; then
+            echo -e "${RED}⚠️  警告：磁碟使用率超過 90%，建議清理${NC}"
+        fi
+        echo ""
+        
+        echo -e "\n${GREEN}🧹 清理 Docker 構建緩存和未使用的資源（避免空間不足錯誤）...${NC}"
+        echo -e "${BLUE}💡 這可以釋放 1-5GB 空間${NC}"
+        
+        # 清理構建緩存（最重要）
+        echo -e "${BLUE}  → 清理構建緩存...${NC}"
+        docker builder prune -af 2>/dev/null || true
+        
+        # 清理未使用的鏡像
+        echo -e "${BLUE}  → 清理未使用的鏡像...${NC}"
+        docker image prune -af 2>/dev/null || true
+        
+        # 清理未使用的容器和網絡
+        echo -e "${BLUE}  → 清理未使用的容器和網絡...${NC}"
+        docker system prune -f 2>/dev/null || true
+        
+        # 顯示清理後的空間使用情況
+        echo ""
+        echo -e "${YELLOW}清理後的 Docker 空間使用：${NC}"
+        docker system df 2>/dev/null || true
+        
+        echo -e "${GREEN}✓ Docker 空間清理完成${NC}"
+        echo ""
 
         # 構建 Docker 映像檔
         echo -e "\n${GREEN}🔨 構建 Docker 映像檔...${NC}"
+        echo -e "${BLUE}💡 如果仍然遇到空間不足錯誤，請手動執行：${NC}"
+        echo -e "${BLUE}   docker builder prune -af && docker system prune -af${NC}"
         docker compose build --pull
         echo -e "${GREEN}✓ 構建完成${NC}"
     else
