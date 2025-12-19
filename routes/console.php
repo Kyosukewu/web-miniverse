@@ -68,9 +68,18 @@ if ($schedulerEnabled) {
     }
 
     // CNN 完整分析：每 1 小時執行一次（建議使用此命令取代上述兩個）
-    // 預計：24 次/天 × 5 個影片 = 120 次請求/天
+    // 配額計算：
+    // - 當前設置：24 次/天 × 10 個影片 = 240 次請求/天
+    // - 配額使用率：240 / 960 = 25%（留有 75% 緩衝）
+    // - RPS 控制：命令內部已實現 sleep(1)，確保 RPS < 1（遠低於 2 RPS 限制）
+    // - 每次執行時間：約 10-15 秒（10 個請求 × 1 秒延遲 + 處理時間）
+    // 
+    // 如需處理更多，可調整為：
+    // - limit=15：360 次/天（37.5% 配額）
+    // - limit=20：480 次/天（50% 配額）
+    // - limit=30：720 次/天（75% 配額，接近安全上限）
     if ($analyzeFullEnabled) {
-        Schedule::command('analyze:full --source=CNN --storage=gcs --limit=5')->hourly()->onOneServer()->runInBackground();
+        Schedule::command('analyze:full --source=CNN --storage=gcs --limit=10')->hourly()->onOneServer()->runInBackground();
     }
 
     // 恢復卡住的分析任務：每 10 分鐘檢查一次（超時 1 小時未更新的任務）
