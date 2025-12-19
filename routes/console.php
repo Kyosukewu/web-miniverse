@@ -83,7 +83,11 @@ if ($schedulerEnabled) {
     }
 
     // 恢復卡住的分析任務：每 10 分鐘檢查一次（超時 1 小時未更新的任務）
-    Schedule::command('analysis:recover --timeout=3600')
+    // 恢復卡住的分析任務：每 10 分鐘檢查一次（超時 1 小時未更新的任務）
+    // 注意：如果只使用 analyze:full，建議使用 --mode=delete 模式
+    // 因為 analyze:full 會跳過所有已存在的記錄，刪除後才能重新處理
+    // 如果使用 analyze:document/analyze:video，使用預設的 reset 模式即可
+    Schedule::command('analysis:recover --timeout=3600 --mode=delete')
         ->everyTenMinutes()
         ->onOneServer()
         ->withoutOverlapping()
