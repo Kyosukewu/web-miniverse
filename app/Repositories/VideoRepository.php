@@ -55,6 +55,24 @@ class VideoRepository
     }
 
     /**
+     * Get videos by source name and multiple source IDs (batch query for optimization).
+     *
+     * @param string $sourceName
+     * @param array<string> $sourceIds
+     * @return Collection<int, Video>
+     */
+    public function getBySourceIds(string $sourceName, array $sourceIds): Collection
+    {
+        if (empty($sourceIds)) {
+            return collect();
+        }
+
+        return Video::where('source_name', $sourceName)
+            ->whereIn('source_id', $sourceIds)
+            ->get();
+    }
+
+    /**
      * Get all videos with analysis results query builder.
      *
      * @param string $searchTerm

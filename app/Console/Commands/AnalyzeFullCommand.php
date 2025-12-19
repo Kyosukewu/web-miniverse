@@ -30,6 +30,7 @@ class AnalyzeFullCommand extends Command
                             {--source=CNN : 來源名稱 (CNN, AP, RT 等)}
                             {--storage=gcs : 儲存空間類型 (nas, s3, gcs, storage)}
                             {--path= : 基礎路徑 (可選)}
+                            {--folder= : 指定特定資料夾，只處理該資料夾的資料 (相對於 basePath 或完整路徑)}
                             {--limit=50 : 每次處理的文檔數量上限}
                             {--prompt-version=v1 : Prompt 版本 (預設 v1)}';
 
@@ -65,11 +66,16 @@ class AnalyzeFullCommand extends Command
         $sourceName = strtoupper($this->option('source'));
         $storageType = strtolower($this->option('storage'));
         $basePath = $this->option('path') ?? '';
+        $targetFolder = $this->option('folder') ?? '';
         $limit = (int) $this->option('limit');
         $promptVersion = $this->option('prompt-version');
 
         $this->info("開始掃描來源: {$sourceName}, 儲存空間: {$storageType}");
         $this->info("模式：完整分析（文本 + 影片一次性發送）");
+        
+        if (!empty($targetFolder)) {
+            $this->info("📁 指定資料夾模式：只處理資料夾 '{$targetFolder}' 的資料");
+        }
 
         // 掃描文檔檔案 (XML 和 TXT)
         $documentFiles = $this->storageService->scanDocumentFiles($storageType, $sourceName, $basePath);
@@ -81,9 +87,31 @@ class AnalyzeFullCommand extends Command
 
         $this->info("找到 " . count($documentFiles) . " 個文檔檔案");
 
+        // ========== 如果指定了資料夾，過濾只保留該資料夾的檔案 ==========
+        if (!empty($targetFolder)) {
+            $documentFiles = $this->filterByFolder($documentFiles, $targetFolder, $storageType);
+            if (empty($documentFiles)) {
+                $this->warn("在資料夾 '{$targetFolder}' 中未找到任何文檔檔案");
+                return Command::SUCCESS;
+            }
+            $this->info("過濾後剩餘 " . count($documentFiles) . " 個文檔檔案（僅限資料夾 '{$targetFolder}'）");
+        }
+        // ================================================================
+
         // 過濾以保留每個 source_id 的最新版本
         $documentFiles = $this->filterLatestVersionDocuments($documentFiles);
         $this->info("過濾後剩餘 " . count($documentFiles) . " 個文檔檔案（每個 source_id 只保留最新版本）");
+
+        // ========== 優化：批量檢查 videos 表，避免重複查詢 ==========
+        // 提前查詢所有可能存在的 source_id，減少資料庫查詢次數
+        $sourceIds = array_unique(array_column($documentFiles, 'source_id'));
+        $existingVideos = $this->videoRepository->getBySourceIds($sourceName, $sourceIds);
+        $existingVideoMap = [];
+        foreach ($existingVideos as $video) {
+            $existingVideoMap[$video->source_id] = $video;
+        }
+        $this->info("批量檢查完成：找到 " . count($existingVideoMap) . " 個已存在的記錄");
+        // ================================================================
 
         if (null !== $limit) {
             $this->info("將處理直到成功處理 {$limit} 個文檔為止");
@@ -108,8 +136,25 @@ class AnalyzeFullCommand extends Command
 
             $checkedCount++;
 
+            // 初始化變數，確保在 catch 塊中可訪問
+            $videoId = null;
+            $isNewlyCreated = false;
+            $isTempFile = false;
+            $videoFilePath = null;
+
             try {
-                // 讀取文檔檔案內容
+                // ========== 優化：提前檢查條件 2，避免不必要的 GCS 讀取 ==========
+                // 先檢查 videos 表，如果已存在則直接跳過，避免讀取 XML
+                if (isset($existingVideoMap[$documentFile['source_id']])) {
+                    $existingVideo = $existingVideoMap[$documentFile['source_id']];
+                    $this->line("\n⊘ 跳過（該 ID 已存在於 videos 表中）: {$documentFile['source_id']} (ID: {$existingVideo->id})");
+                    $skippedCount++;
+                    $progressBar->advance();
+                    continue;
+                }
+                // ================================================================
+
+                // 讀取文檔檔案內容（只有在確認需要處理時才讀取）
                 $fileContent = $this->storageService->readFile($storageType, $documentFile['file_path']);
 
                 if (null === $fileContent) {
@@ -162,65 +207,90 @@ class AnalyzeFullCommand extends Command
                     continue;
                 }
 
-                // ========== 條件 2: 檢查影片是否已存在於 videos 表中 ==========
-                $existingVideo = $this->videoRepository->getBySourceId(
-                    $documentFile['source_name'],
-                    $documentFile['source_id']
-                );
+                // ========== 條件 2: 已在批量檢查中完成，這裡不需要重複檢查 ==========
 
-                // 如果已存在記錄，直接跳過（條件 2 不符合）
-                // 避免之前只分析一半的單筆指令影響
-                if (null !== $existingVideo) {
-                    $this->line("\n⊘ 跳過（該 ID 已存在於 videos 表中）: {$documentFile['source_id']} (ID: {$existingVideo->id})");
-                    $skippedCount++;
-                    $progressBar->advance();
-                    continue;
-                }
-
-                // ========== 條件 3: 檢查影片檔案大小（在建立記錄前先檢查）==========
-                $videoFilePath = $this->storageService->getVideoFilePath($storageType, $nasPath);
+                // ========== 條件 3: 檢查影片檔案大小（優化：使用 GCS 元數據，避免下載整個檔案）==========
+                // 優化：對於 GCS，先使用 size() 方法檢查檔案大小，只讀取元數據，不下載整個檔案
+                $fileSizeMB = null;
+                $maxFileSizeMB = 300; // Gemini API 最多支援 300MB
                 
-                if (null === $videoFilePath) {
-                    $this->warn("\n⊘ 跳過（無法取得影片檔案路徑）: {$documentFile['source_id']}");
-                    $skippedCount++;
-                    $progressBar->advance();
-                    continue;
-                }
-
-                // 檢查檔案是否存在
-                if (!file_exists($videoFilePath)) {
-                    $this->warn("\n⊘ 跳過（影片檔案不存在）: {$documentFile['source_id']} - {$videoFilePath}");
-                    $skippedCount++;
-                    $progressBar->advance();
-                    continue;
-                }
-
-                // 檢查檔案大小限制（條件 3）
-                try {
-                    $fileSize = filesize($videoFilePath);
-                    $fileSizeMB = round($fileSize / 1024 / 1024, 2);
-                    
-                    // Gemini API 最多支援 300MB
-                    $maxFileSizeMB = 300;
-                    if ($fileSizeMB > $maxFileSizeMB) {
-                        $this->warn("\n⚠️  跳過（檔案過大）: {$documentFile['source_id']} (檔案大小: {$fileSizeMB}MB > {$maxFileSizeMB}MB)");
+                if ('gcs' === $storageType) {
+                    try {
+                        $disk = $this->storageService->getDisk($storageType);
+                        if ($disk->exists($nasPath)) {
+                            // 使用 GCS 的 size() 方法，只讀取元數據，不下載檔案
+                            $fileSize = $disk->size($nasPath);
+                            $fileSizeMB = round($fileSize / 1024 / 1024, 2);
+                            
+                            if ($fileSizeMB > $maxFileSizeMB) {
+                                $this->warn("\n⚠️  跳過（檔案過大）: {$documentFile['source_id']} (檔案大小: {$fileSizeMB}MB > {$maxFileSizeMB}MB)");
+                                $skippedCount++;
+                                $progressBar->advance();
+                                continue;
+                            }
+                            
+                            $this->line("\n✓ 檔案大小符合限制: {$documentFile['source_id']} ({$fileSizeMB}MB)");
+                        } else {
+                            $this->warn("\n⊘ 跳過（影片檔案不存在）: {$documentFile['source_id']} - {$nasPath}");
+                            $skippedCount++;
+                            $progressBar->advance();
+                            continue;
+                        }
+                    } catch (\Exception $e) {
+                        $this->warn("\n⊘ 跳過（無法取得檔案大小）: {$documentFile['source_id']} - {$e->getMessage()}");
+                        Log::warning('[AnalyzeFullCommand] 無法取得 GCS 檔案大小', [
+                            'source_id' => $documentFile['source_id'],
+                            'nas_path' => $nasPath,
+                            'error' => $e->getMessage(),
+                        ]);
                         $skippedCount++;
                         $progressBar->advance();
                         continue;
                     }
+                } else {
+                    // 對於非 GCS 儲存（nas, local, storage），使用原有邏輯
+                    $videoFilePath = $this->storageService->getVideoFilePath($storageType, $nasPath);
                     
-                    $this->line("\n✓ 檔案大小符合限制: {$documentFile['source_id']} ({$fileSizeMB}MB)");
-                } catch (\Exception $e) {
-                    $this->warn("\n⊘ 跳過（無法取得檔案大小）: {$documentFile['source_id']} - {$e->getMessage()}");
-                    Log::warning('[AnalyzeFullCommand] 無法取得檔案大小', [
-                        'source_id' => $documentFile['source_id'],
-                        'nas_path' => $nasPath,
-                        'video_file_path' => $videoFilePath,
-                        'error' => $e->getMessage(),
-                    ]);
-                    $skippedCount++;
-                    $progressBar->advance();
-                    continue;
+                    if (null === $videoFilePath) {
+                        $this->warn("\n⊘ 跳過（無法取得影片檔案路徑）: {$documentFile['source_id']}");
+                        $skippedCount++;
+                        $progressBar->advance();
+                        continue;
+                    }
+
+                    // 檢查檔案是否存在
+                    if (!file_exists($videoFilePath)) {
+                        $this->warn("\n⊘ 跳過（影片檔案不存在）: {$documentFile['source_id']} - {$videoFilePath}");
+                        $skippedCount++;
+                        $progressBar->advance();
+                        continue;
+                    }
+
+                    // 檢查檔案大小限制
+                    try {
+                        $fileSize = filesize($videoFilePath);
+                        $fileSizeMB = round($fileSize / 1024 / 1024, 2);
+                        
+                        if ($fileSizeMB > $maxFileSizeMB) {
+                            $this->warn("\n⚠️  跳過（檔案過大）: {$documentFile['source_id']} (檔案大小: {$fileSizeMB}MB > {$maxFileSizeMB}MB)");
+                            $skippedCount++;
+                            $progressBar->advance();
+                            continue;
+                        }
+                        
+                        $this->line("\n✓ 檔案大小符合限制: {$documentFile['source_id']} ({$fileSizeMB}MB)");
+                    } catch (\Exception $e) {
+                        $this->warn("\n⊘ 跳過（無法取得檔案大小）: {$documentFile['source_id']} - {$e->getMessage()}");
+                        Log::warning('[AnalyzeFullCommand] 無法取得檔案大小', [
+                            'source_id' => $documentFile['source_id'],
+                            'nas_path' => $nasPath,
+                            'video_file_path' => $videoFilePath,
+                            'error' => $e->getMessage(),
+                        ]);
+                        $skippedCount++;
+                        $progressBar->advance();
+                        continue;
+                    }
                 }
 
                 // ========== 所有條件都符合，建立新的影片記錄並進行分析 ==========
@@ -264,6 +334,21 @@ class AnalyzeFullCommand extends Command
                     new \DateTime()
                 );
 
+                // ========== 優化：延遲下載影片檔案，只有在所有條件都通過後才下載 ==========
+                // 對於 GCS，現在才下載影片檔案（之前只檢查了元數據，避免下載大檔案後才發現不符合條件）
+                $isTempFile = false;
+                if ('gcs' === $storageType) {
+                    $this->line("→ 開始下載影片檔案（所有條件已通過）...");
+                    $videoFilePath = $this->storageService->getVideoFilePath($storageType, $nasPath);
+                    if (null === $videoFilePath) {
+                        throw new \Exception("無法下載影片檔案: {$nasPath}");
+                    }
+                    $isTempFile = true; // 標記為臨時檔案，需要清理
+                    $this->line("→ 已下載影片檔案到臨時位置: " . basename($videoFilePath));
+                }
+                // 對於非 GCS 儲存，$videoFilePath 已在條件 3 檢查中獲取，無需重複獲取
+                // ================================================================
+
                 // ========== 重要：所有條件檢查已完成，準備發送 API 請求 ==========
                 // 條件 1: ✅ MP4 檔案存在
                 // 條件 2: ✅ videos 表中不存在記錄
@@ -298,6 +383,27 @@ class AnalyzeFullCommand extends Command
                 $processedCount++;
             } catch (\Exception $e) {
                 $errorCount++;
+                
+                // ========== 清理臨時檔案（如果下載失敗或分析失敗）==========
+                if (isset($isTempFile) && $isTempFile && isset($videoFilePath) && file_exists($videoFilePath)) {
+                    try {
+                        $tempFileSize = filesize($videoFilePath);
+                        if (@unlink($videoFilePath)) {
+                            $this->line("\n🗑️  已清理臨時檔案: " . basename($videoFilePath) . " (" . round($tempFileSize / 1024 / 1024, 2) . "MB)");
+                            Log::info('[AnalyzeFullCommand] 已清理失敗的臨時檔案', [
+                                'temp_path' => $videoFilePath,
+                                'size_mb' => round($tempFileSize / 1024 / 1024, 2),
+                            ]);
+                        }
+                    } catch (\Exception $cleanupException) {
+                        Log::warning('[AnalyzeFullCommand] 清理臨時檔案失敗', [
+                            'temp_path' => $videoFilePath ?? null,
+                            'error' => $cleanupException->getMessage(),
+                        ]);
+                    }
+                }
+                // ================================================================
+
                 Log::error('[AnalyzeFullCommand] 完整分析失敗', [
                     'source_id' => $documentFile['source_id'],
                     'file_path' => $documentFile['file_path'],
@@ -314,6 +420,17 @@ class AnalyzeFullCommand extends Command
                     sleep(1);
                 }
                 // ========================================
+
+                // ========== 處理 429 錯誤（配額超限）==========
+                // 如果是 429 錯誤，建議停止處理或延長等待時間
+                if (str_contains($e->getMessage(), '429') || str_contains($e->getMessage(), 'quota')) {
+                    $this->warn("\n⚠️  Gemini API 配額已超限，建議停止處理或檢查配額狀態");
+                    Log::warning('[AnalyzeFullCommand] 檢測到 API 配額超限', [
+                        'source_id' => $documentFile['source_id'],
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+                // ================================================================
 
                 // 如果是剛建立的記錄且分析失敗，刪除該記錄
                 // 避免在資料庫中累積大量失敗的空記錄
@@ -838,6 +955,101 @@ class AnalyzeFullCommand extends Command
         }
 
         return null;
+    }
+
+    /**
+     * 根據指定的資料夾過濾文檔檔案。
+     *
+     * @param array<int, array<string, mixed>> $documentFiles
+     * @param string $targetFolder 目標資料夾路徑（相對於 basePath 或完整路徑）
+     * @param string $storageType 儲存空間類型
+     * @return array<int, array<string, mixed>>
+     */
+    private function filterByFolder(array $documentFiles, string $targetFolder, string $storageType): array
+    {
+        // 標準化目標資料夾路徑
+        $normalizedTargetFolder = $this->normalizeFolderPath($targetFolder, $storageType);
+        
+        $filtered = [];
+        
+        foreach ($documentFiles as $file) {
+            // 從 relative_path 或 file_path 提取目錄路徑
+            $fileDir = dirname($file['relative_path'] ?? $file['file_path'] ?? '');
+            
+            // 標準化檔案目錄路徑
+            $normalizedFileDir = $this->normalizeFolderPath($fileDir, $storageType);
+            
+            // 檢查是否匹配（支援完整匹配或部分匹配）
+            // 例如：targetFolder = "cnn/CNNA-ST1-1234567890abcdef" 或 "CNNA-ST1-1234567890abcdef"
+            if ($this->isFolderMatch($normalizedFileDir, $normalizedTargetFolder)) {
+                $filtered[] = $file;
+            }
+        }
+        
+        return $filtered;
+    }
+
+    /**
+     * 標準化資料夾路徑。
+     *
+     * @param string $folderPath
+     * @param string $storageType
+     * @return string
+     */
+    private function normalizeFolderPath(string $folderPath, string $storageType): string
+    {
+        // 移除前導和尾隨斜線
+        $normalized = trim($folderPath, '/');
+        
+        // 移除 storage/app 前綴（如果存在）
+        $normalized = preg_replace('#^storage/app/#', '', $normalized);
+        $normalized = preg_replace('#^storage/app$#', '', $normalized);
+        
+        // 統一使用小寫（用於比較）
+        $normalized = strtolower($normalized);
+        
+        return $normalized;
+    }
+
+    /**
+     * 檢查檔案目錄是否匹配目標資料夾。
+     * 支援完整路徑匹配或資料夾名稱匹配。
+     *
+     * @param string $fileDir 檔案所在目錄（已標準化）
+     * @param string $targetFolder 目標資料夾（已標準化）
+     * @return bool
+     */
+    private function isFolderMatch(string $fileDir, string $targetFolder): bool
+    {
+        // 完全匹配
+        if ($fileDir === $targetFolder) {
+            return true;
+        }
+        
+        // 將路徑分割為部分
+        $fileDirParts = explode('/', $fileDir);
+        $targetFolderParts = explode('/', $targetFolder);
+        
+        // 檢查目標資料夾是否為檔案目錄的結尾部分
+        // 例如：fileDir = "cnn/cnna-st1-1234567890abcdef"
+        //      targetFolder = "cnna-st1-1234567890abcdef"
+        if (count($targetFolderParts) <= count($fileDirParts)) {
+            $fileDirEnd = array_slice($fileDirParts, -count($targetFolderParts));
+            if ($fileDirEnd === $targetFolderParts) {
+                return true;
+            }
+        }
+        
+        // 檢查檔案目錄的任何部分是否完全匹配目標資料夾
+        // 例如：fileDir = "cnn/cnna-st1-1234567890abcdef"
+        //      targetFolder = "cnna-st1-1234567890abcdef"
+        foreach ($fileDirParts as $part) {
+            if ($part === $targetFolder) {
+                return true;
+            }
+        }
+        
+        return false;
     }
 }
 

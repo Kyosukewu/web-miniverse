@@ -679,6 +679,7 @@ class StorageService
      */
     private function downloadGcsFileToTemp(string $filePath): ?string
     {
+        $tempPath = null;
         try {
             $disk = $this->getDisk('gcs');
 
@@ -689,27 +690,96 @@ class StorageService
                 return null;
             }
 
+            // Get file size before downloading
+            $fileSize = $disk->size($filePath);
+            $fileSizeMB = round($fileSize / 1024 / 1024, 2);
+
             // Create temp directory
             $tempDir = storage_path('app/temp');
             if (!is_dir($tempDir)) {
                 mkdir($tempDir, 0755, true);
             }
 
+            // Check available disk space (need at least file size + 100MB buffer)
+            $requiredSpace = $fileSize + (100 * 1024 * 1024); // file size + 100MB buffer
+            $availableSpace = disk_free_space($tempDir);
+            
+            if ($availableSpace === false || $availableSpace < $requiredSpace) {
+                $availableSpaceMB = $availableSpace ? round($availableSpace / 1024 / 1024, 2) : 0;
+                $requiredSpaceMB = round($requiredSpace / 1024 / 1024, 2);
+                Log::error('[StorageService] 磁碟空間不足，無法下載檔案', [
+                    'file_path' => $filePath,
+                    'file_size_mb' => $fileSizeMB,
+                    'available_space_mb' => $availableSpaceMB,
+                    'required_space_mb' => $requiredSpaceMB,
+                ]);
+                throw new \Exception("磁碟空間不足：需要 {$requiredSpaceMB}MB，但只有 {$availableSpaceMB}MB 可用");
+            }
+
             // Generate temp file path
             $fileName = basename($filePath);
             $tempPath = $tempDir . '/' . uniqid('gcs_', true) . '_' . $fileName;
 
-            // Download from GCS
-            $contents = $disk->get($filePath);
-            file_put_contents($tempPath, $contents);
+            // Download from GCS using stream (memory efficient for large files)
+            try {
+                $stream = $disk->readStream($filePath);
+                if (false === $stream || !is_resource($stream)) {
+                    throw new \Exception('無法開啟 GCS 檔案串流');
+                }
 
-            Log::info('[StorageService] GCS 檔案下載到臨時位置', [
-                'gcs_path' => $filePath,
-                'temp_path' => $tempPath,
-            ]);
+                // Write to temp file using stream
+                $tempHandle = fopen($tempPath, 'wb');
+                if (false === $tempHandle) {
+                    fclose($stream);
+                    throw new \Exception('無法建立臨時檔案: ' . $tempPath);
+                }
 
-            return $tempPath;
+                // Stream copy (chunk by chunk to avoid memory issues)
+                $bytesWritten = 0;
+                while (!feof($stream)) {
+                    $chunk = fread($stream, 8192); // 8KB chunks
+                    if (false === $chunk) {
+                        break;
+                    }
+                    $written = fwrite($tempHandle, $chunk);
+                    if (false === $written) {
+                        fclose($stream);
+                        fclose($tempHandle);
+                        @unlink($tempPath); // Clean up partial file
+                        throw new \Exception('寫入臨時檔案失敗: ' . $tempPath);
+                    }
+                    $bytesWritten += $written;
+                }
+
+                fclose($stream);
+                fclose($tempHandle);
+
+                // Verify file was written correctly
+                if (!file_exists($tempPath) || filesize($tempPath) !== $fileSize) {
+                    @unlink($tempPath); // Clean up incomplete file
+                    throw new \Exception("檔案下載不完整：預期 {$fileSize} bytes，實際 " . (file_exists($tempPath) ? filesize($tempPath) : 0) . " bytes");
+                }
+
+                Log::info('[StorageService] GCS 檔案下載到臨時位置', [
+                    'gcs_path' => $filePath,
+                    'temp_path' => $tempPath,
+                    'file_size_mb' => $fileSizeMB,
+                ]);
+
+                return $tempPath;
+            } catch (\Exception $streamException) {
+                // Clean up partial file if exists
+                if (null !== $tempPath && file_exists($tempPath)) {
+                    @unlink($tempPath);
+                }
+                throw $streamException;
+            }
         } catch (\Exception $e) {
+            // Clean up partial file if exists
+            if (null !== $tempPath && file_exists($tempPath)) {
+                @unlink($tempPath);
+            }
+            
             Log::error('[StorageService] GCS 檔案下載失敗', [
                 'file_path' => $filePath,
                 'error' => $e->getMessage(),
