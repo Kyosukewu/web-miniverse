@@ -78,7 +78,6 @@ class VideoAnalysisExport implements FromCollection, WithChunkReading, WithColum
     public function map($video): array
     {
         $analysisResult = $video->analysisResult;
-        $combinedSourceId = strtoupper($video->source_name) . $video->source_id;
 
         // 格式化影片長度
         $formattedDuration = 'N/A';
@@ -201,9 +200,16 @@ class VideoAnalysisExport implements FromCollection, WithChunkReading, WithColum
             }
         }
 
+        // 處理 Prompt 版本：優先使用 analysisResult 中的 prompt_version，如果不存在則使用 video 中的
+        $promptVersion = 'N/A';
+        if (null !== $analysisResult && null !== $analysisResult->prompt_version) {
+            $promptVersion = $analysisResult->prompt_version;
+        } elseif ($video->prompt_version) {
+            $promptVersion = $video->prompt_version;
+        }
+
         return [
             $video->id,
-            $combinedSourceId,
             $video->source_name ?? 'N/A',
             $video->source_id ?? 'N/A',
             $video->title ?? 'N/A',
@@ -226,8 +232,7 @@ class VideoAnalysisExport implements FromCollection, WithChunkReading, WithColum
             $video->shotlist_content ?? 'N/A',
             $video->nas_path ?? 'N/A',
             $video->analysis_status->value ?? 'N/A',
-            $analysisResult->prompt_version ?? 'N/A',
-            $video->prompt_version ?? 'N/A',
+            $promptVersion,
             $analysisResult->error_message ?? '',
         ];
     }
@@ -239,7 +244,6 @@ class VideoAnalysisExport implements FromCollection, WithChunkReading, WithColum
     {
         return [
             'ID',
-            '素材編號',
             '來源名稱',
             '來源ID',
             '標題',
@@ -262,8 +266,7 @@ class VideoAnalysisExport implements FromCollection, WithChunkReading, WithColum
             '畫面內容 (Shotlist)',
             '檔案路徑',
             '分析狀態',
-            '影片 Prompt 版本',
-            '文本 Prompt 版本',
+            'Prompt 版本',
             '錯誤訊息',
         ];
     }
@@ -283,32 +286,30 @@ class VideoAnalysisExport implements FromCollection, WithChunkReading, WithColum
     {
         return [
             'A' => 10,  // ID
-            'B' => 20,  // 素材編號
-            'C' => 15,  // 來源名稱
-            'D' => 15,  // 來源ID
-            'E' => 40,  // 標題
-            'F' => 20,  // 發布時間
-            'G' => 20,  // 擷取時間
-            'H' => 15,  // 影片長度
-            'I' => 20,  // 主要地點
-            'J' => 40,  // 所有地點
-            'K' => 30,  // 分類/主題
-            'L' => 40,  // 關鍵字
-            'M' => 50,  // 短摘要
-            'N' => 50,  // 列點摘要
-            'O' => 50,  // 畫面描述
-            'P' => 20,  // 素材類型
-            'Q' => 15,  // 重要性評級
-            'R' => 60,  // 重要性評估詳情
-            'T' => 60,  // BITE
-            'U' => 60,  // 原文逐字稿
-            'V' => 60,  // 逐字稿翻譯
-            'W' => 60,  // 畫面內容
-            'X' => 50,  // 檔案路徑
-            'Y' => 20,  // 分析狀態
-            'Z' => 20,  // 影片 Prompt 版本
-            'AA' => 20, // 文本 Prompt 版本
-            'AB' => 40, // 錯誤訊息
+            'B' => 15,  // 來源名稱
+            'C' => 15,  // 來源ID
+            'D' => 40,  // 標題
+            'E' => 20,  // 發布時間
+            'F' => 20,  // 擷取時間
+            'G' => 15,  // 影片長度
+            'H' => 20,  // 主要地點
+            'I' => 40,  // 所有地點
+            'J' => 30,  // 分類/主題
+            'K' => 40,  // 關鍵字
+            'L' => 50,  // 短摘要
+            'M' => 50,  // 列點摘要
+            'N' => 50,  // 畫面描述
+            'O' => 20,  // 素材類型
+            'P' => 15,  // 重要性評級
+            'Q' => 60,  // 重要性評估詳情
+            'R' => 60,  // BITE
+            'S' => 60,  // 原文逐字稿
+            'T' => 60,  // 逐字稿翻譯
+            'U' => 60,  // 畫面內容
+            'V' => 50,  // 檔案路徑
+            'W' => 20,  // 分析狀態
+            'X' => 20,  // Prompt 版本
+            'Y' => 40,  // 錯誤訊息
         ];
     }
 
