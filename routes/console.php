@@ -79,7 +79,7 @@ if ($schedulerEnabled) {
     // - limit=20：480 次/天（50% 配額）
     // - limit=30：720 次/天（75% 配額，接近安全上限）
     if ($analyzeFullEnabled) {
-        Schedule::command('analyze:full --source=CNN --storage=gcs --limit=10')->hourly()->onOneServer()->runInBackground();
+        Schedule::command('analyze:full --source=CNN --storage=gcs --limit=30')->hourly()->onOneServer()->runInBackground();
     }
 
     // 恢復卡住的分析任務：每 10 分鐘檢查一次（超時 1 小時未更新的任務）
