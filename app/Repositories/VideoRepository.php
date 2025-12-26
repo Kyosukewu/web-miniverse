@@ -74,6 +74,7 @@ class VideoRepository
 
     /**
      * Get all videos with analysis results query builder.
+     * Only returns videos that have been parsed (sync_status = 'parsed').
      *
      * @param string $searchTerm
      * @param string $sortBy
@@ -85,7 +86,8 @@ class VideoRepository
         string $sortBy = '',
         string $sortOrder = ''
     ): \Illuminate\Database\Eloquent\Builder {
-        $query = Video::with('analysisResult');
+        $query = Video::with('analysisResult')
+            ->where('sync_status', 'parsed'); // 只顯示已解析完成的資料
 
         if ('' !== $searchTerm) {
             $query->where(function ($q) use ($searchTerm) {
@@ -296,6 +298,78 @@ class VideoRepository
 
         // Delete will cascade to analysis_results due to foreign key constraint
         return $video->delete();
+    }
+
+    /**
+     * Get videos that are ready for analysis (sync_status = 'updated' or 'synced').
+     * These are videos that have been synced to GCS but not yet analyzed.
+     *
+     * @param string $sourceName
+     * @param int $limit
+     * @return Collection<int, Video>
+     */
+    public function getPendingAnalysisVideos(string $sourceName, int $limit = 50): Collection
+    {
+        return Video::where('source_name', strtoupper($sourceName))
+            ->whereIn('sync_status', ['updated', 'synced'])
+            ->where(function ($query) {
+                // 排除檔案過大的影片（超過 Gemini API 限制 300MB）
+                $query->whereNull('file_size_mb')
+                      ->orWhere('file_size_mb', '<=', 300);
+            })
+            ->orderBy('fetched_at', 'asc')
+            ->limit($limit)
+            ->get();
+    }
+
+    /**
+     * Get all videos query builder for status page.
+     *
+     * @param string $searchTerm
+     * @param string $sourceName
+     * @param string $sortBy
+     * @param string $sortOrder
+     * @return \Illuminate\Database\Eloquent\Builder
+     */
+    public function getAllVideosQuery(
+        string $searchTerm = '',
+        string $sourceName = '',
+        string $sortBy = 'id',
+        string $sortOrder = 'desc'
+    ): \Illuminate\Database\Eloquent\Builder {
+        $query = Video::query();
+
+        // 搜尋條件
+        if ('' !== $searchTerm) {
+            $query->where(function ($q) use ($searchTerm) {
+                $q->where('id', 'like', '%' . $searchTerm . '%')
+                    ->orWhere('source_id', 'like', '%' . $searchTerm . '%')
+                    ->orWhere('title', 'like', '%' . $searchTerm . '%');
+            });
+        }
+
+        // 來源篩選
+        if ('' !== $sourceName) {
+            $query->where('source_name', strtoupper($sourceName));
+        }
+
+        // 排序
+        $order = ('asc' === strtolower($sortOrder)) ? 'asc' : 'desc';
+        $dbColumn = match ($sortBy) {
+            'id' => 'id',
+            'source_name' => 'source_name',
+            'source_id' => 'source_id',
+            'title' => 'title',
+            'fetched_at' => 'fetched_at',
+            'published_at' => 'published_at',
+            'analysis_status' => 'analysis_status',
+            'sync_status' => 'sync_status',
+            default => 'id',
+        };
+        
+        $query->orderBy($dbColumn, $order);
+
+        return $query;
     }
 }
 

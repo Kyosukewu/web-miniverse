@@ -71,4 +71,33 @@ class DashboardController extends Controller
         return Excel::download($export, $filename);
     }
 
+    /**
+     * Display all videos status list.
+     *
+     * @param Request $request
+     * @return View
+     */
+    public function status(Request $request): View
+    {
+        $searchTerm = $request->query('search', '');
+        $sourceName = $request->query('source', '');
+        $sortBy = $request->query('sortBy', 'id');
+        $sortOrder = $request->query('sortOrder', 'desc');
+        
+        // 建立查詢
+        $query = $this->videoRepository->getAllVideosQuery($searchTerm, $sourceName, $sortBy, $sortOrder);
+        
+        // 分頁
+        $perPage = (int) $request->query('per_page', 50);
+        $videos = $query->paginate($perPage)->withQueryString();
+        
+        return view('status', [
+            'videos' => $videos,
+            'searchTerm' => $searchTerm,
+            'sourceName' => $sourceName,
+            'sortBy' => $sortBy,
+            'sortOrder' => $sortOrder,
+        ]);
+    }
+
 }

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Console\Commands;
 
 use App\Enums\AnalysisStatus;
+use App\Enums\SyncStatus;
 use App\Repositories\VideoRepository;
 use App\Services\AnalyzeService;
 use App\Services\SourceVersionChecker;
@@ -65,267 +66,155 @@ class AnalyzeFullCommand extends Command
         
         $sourceName = strtoupper($this->option('source'));
         $storageType = strtolower($this->option('storage'));
-        $basePath = $this->option('path') ?? '';
-        $targetFolder = $this->option('folder') ?? '';
         $limit = (int) $this->option('limit');
         $promptVersion = $this->option('prompt-version');
 
-        $this->info("開始掃描來源: {$sourceName}, 儲存空間: {$storageType}");
+        $this->info("開始處理來源: {$sourceName}, 儲存空間: {$storageType}");
         $this->info("模式：完整分析（文本 + 影片一次性發送）");
-        
-        if (!empty($targetFolder)) {
-            $this->info("📁 指定資料夾模式：只處理資料夾 '{$targetFolder}' 的資料");
-        }
+        $this->info("📊 從資料庫獲取待處理記錄（sync_status = 'updated' 或 'synced'）");
 
-        // 掃描文檔檔案 (XML 和 TXT)
-        $documentFiles = $this->storageService->scanDocumentFiles($storageType, $sourceName, $basePath);
+        // 從資料庫獲取待處理的記錄
+        $pendingVideos = $this->videoRepository->getPendingAnalysisVideos($sourceName, $limit > 0 ? $limit : 100);
 
-        if (empty($documentFiles)) {
-            $this->warn("未找到任何文檔檔案 (XML 或 TXT)");
+        if ($pendingVideos->isEmpty()) {
+            $this->warn("未找到任何待處理的記錄（sync_status = 'updated' 或 'synced'）");
             return Command::SUCCESS;
         }
 
-        $this->info("找到 " . count($documentFiles) . " 個文檔檔案");
+        $this->info("找到 " . $pendingVideos->count() . " 個待處理的記錄");
 
-        // ========== 如果指定了資料夾，過濾只保留該資料夾的檔案 ==========
-        if (!empty($targetFolder)) {
-            $documentFiles = $this->filterByFolder($documentFiles, $targetFolder, $storageType);
-            if (empty($documentFiles)) {
-                $this->warn("在資料夾 '{$targetFolder}' 中未找到任何文檔檔案");
-                return Command::SUCCESS;
-            }
-            $this->info("過濾後剩餘 " . count($documentFiles) . " 個文檔檔案（僅限資料夾 '{$targetFolder}'）");
-        }
-        // ================================================================
-
-        // 過濾以保留每個 source_id 的最新版本
-        $documentFiles = $this->filterLatestVersionDocuments($documentFiles);
-        $this->info("過濾後剩餘 " . count($documentFiles) . " 個文檔檔案（每個 source_id 只保留最新版本）");
-
-        // ========== 優化：批量檢查 videos 表，避免重複查詢 ==========
-        // 提前查詢所有可能存在的 source_id，減少資料庫查詢次數
-        $sourceIds = array_unique(array_column($documentFiles, 'source_id'));
-        $existingVideos = $this->videoRepository->getBySourceIds($sourceName, $sourceIds);
-        $existingVideoMap = [];
-        foreach ($existingVideos as $video) {
-            $existingVideoMap[$video->source_id] = $video;
-        }
-        $this->info("批量檢查完成：找到 " . count($existingVideoMap) . " 個已存在的記錄");
-        // ================================================================
-
-        if (null !== $limit) {
-            $this->info("將處理直到成功處理 {$limit} 個文檔為止");
+        if ($limit > 0) {
+            $this->info("將處理直到成功處理 {$limit} 個記錄為止");
         }
 
-        // 處理文檔檔案
+        // 處理待處理的記錄
         $processedCount = 0;
         $skippedCount = 0;
         $errorCount = 0;
         $checkedCount = 0;
 
-        // 使用總檔案數量建立進度條
-        $progressBar = $this->output->createProgressBar(count($documentFiles));
+        // 使用總記錄數量建立進度條
+        $progressBar = $this->output->createProgressBar($pendingVideos->count());
         $progressBar->start();
 
-        foreach ($documentFiles as $documentFile) {
+        foreach ($pendingVideos as $video) {
             // 檢查是否已達到處理限制（只計算成功處理的）
-            if (null !== $limit && $processedCount >= $limit) {
-                $this->line("\n已達到處理限制 ({$limit} 個文檔)，停止處理");
+            if ($limit > 0 && $processedCount >= $limit) {
+                $this->line("\n已達到處理限制 ({$limit} 個記錄)，停止處理");
                 break;
             }
 
             $checkedCount++;
-
-            // 初始化變數，確保在 catch 塊中可訪問
-            $videoId = null;
-            $isNewlyCreated = false;
+            $videoId = $video->id;
             $isTempFile = false;
             $videoFilePath = null;
 
             try {
-                // ========== 優化：提前檢查條件 2，避免不必要的 GCS 讀取 ==========
-                // 先檢查 videos 表，如果已存在則直接跳過，避免讀取 XML
-                if (isset($existingVideoMap[$documentFile['source_id']])) {
-                    $existingVideo = $existingVideoMap[$documentFile['source_id']];
-                    $this->line("\n⊘ 跳過（該 ID 已存在於 videos 表中）: {$documentFile['source_id']} (ID: {$existingVideo->id})");
+                // 從 GCS 獲取對應的 XML 和 MP4 檔案
+                $sourceId = $video->source_id;
+                $gcsBasePath = 'cnn/' . $sourceId;
+                
+                $this->line("\n處理記錄: {$sourceId} (Video ID: {$videoId})");
+                
+                // 掃描該資料夾中的 XML 和 MP4 檔案
+                $disk = $this->storageService->getDisk($storageType);
+                $files = $disk->files($gcsBasePath);
+                
+                $xmlFile = null;
+                $mp4File = null;
+                
+                foreach ($files as $file) {
+                    $extension = strtolower(pathinfo($file, PATHINFO_EXTENSION));
+                    if ('xml' === $extension) {
+                        $xmlFile = $file;
+                    } elseif ('mp4' === $extension) {
+                        if (null === $mp4File) {
+                            $mp4File = $file;
+                        } else {
+                            // 選擇較小的 MP4 檔案
+                            $currentSize = $disk->size($file);
+                            $existingSize = $disk->size($mp4File);
+                            if ($currentSize < $existingSize) {
+                                $mp4File = $file;
+                            }
+                        }
+                    }
+                }
+                
+                // 檢查是否同時存在 XML 和 MP4
+                if (null === $xmlFile) {
+                    $this->warn("\n⊘ 跳過（找不到 XML 檔案）: {$sourceId}");
                     $skippedCount++;
                     $progressBar->advance();
                     continue;
                 }
-                // ================================================================
-
-                // 讀取文檔檔案內容（只有在確認需要處理時才讀取）
-                $fileContent = $this->storageService->readFile($storageType, $documentFile['file_path']);
+                
+                if (null === $mp4File) {
+                    $this->warn("\n⊘ 跳過（找不到 MP4 檔案）: {$sourceId}");
+                    $skippedCount++;
+                    $progressBar->advance();
+                    continue;
+                }
+                
+                // 讀取 XML 檔案內容
+                $fileContent = $this->storageService->readFile($storageType, $xmlFile);
 
                 if (null === $fileContent) {
-                    $this->warn("\n無法讀取檔案: {$documentFile['file_path']}");
+                    $this->warn("\n無法讀取 XML 檔案: {$xmlFile}");
                     $errorCount++;
                     $progressBar->advance();
                     continue;
                 }
 
-                $fileExtension = strtolower($documentFile['extension'] ?? pathinfo($documentFile['file_path'], PATHINFO_EXTENSION));
-                $textContent = '';
-                $mp4FilePaths = ['broadcast' => '', 'proxy' => ''];
-
-                // 根據檔案類型解析內容
-                if ('xml' === $fileExtension) {
-                    // 從 CNN XML (objPaths) 提取 MP4 檔案路徑
-                    $mp4FilePaths = $this->extractMp4PathsFromXml($fileContent, $documentFile);
-                    
-                    // 將 XML 解析為文字內容
-                    $textContent = $this->parseXmlToText($fileContent);
-                } elseif ('txt' === $fileExtension) {
-                    // 解析 TXT 檔案內容
-                    $textContent = $this->parseTxtToText($fileContent);
-                } else {
-                    $this->warn("\n不支援的檔案類型: {$fileExtension}");
-                    $errorCount++;
-                    $progressBar->advance();
-                    continue;
-                }
+                // 解析 XML 為文字內容
+                $textContent = $this->parseXmlToText($fileContent);
 
                 if ('' === trim($textContent)) {
-                    $this->warn("\n檔案內容為空: {$documentFile['file_path']}");
+                    $this->warn("\nXML 檔案內容為空: {$xmlFile}");
                     $errorCount++;
                     $progressBar->advance();
                     continue;
                 }
 
-                // ========== 條件 1: 確定 nas_path（必須找到對應的 MP4 檔案）==========
-                $nasPath = $this->determineNasPath(
-                    $storageType,
-                    $documentFile,
-                    $mp4FilePaths
-                );
-
-                // 如果找不到 MP4 檔案，跳過（條件 1 不符合）
-                if (null === $nasPath || str_ends_with(strtolower($nasPath), '.xml') || str_ends_with(strtolower($nasPath), '.txt')) {
-                    $this->line("\n⊘ 跳過（找不到對應的 MP4 檔案）: {$documentFile['file_name']}");
-                    $skippedCount++;
-                    $progressBar->advance();
-                    continue;
-                }
-
-                // ========== 條件 2: 已在批量檢查中完成，這裡不需要重複檢查 ==========
-
-                // ========== 條件 3: 檢查影片檔案大小（優化：使用 GCS 元數據，避免下載整個檔案）==========
-                // 優化：對於 GCS，先使用 size() 方法檢查檔案大小，只讀取元數據，不下載整個檔案
+                // 檢查影片檔案大小
                 $fileSizeMB = null;
                 $maxFileSizeMB = 300; // Gemini API 最多支援 300MB
                 
-                if ('gcs' === $storageType) {
-                    try {
-                        $disk = $this->storageService->getDisk($storageType);
-                        if ($disk->exists($nasPath)) {
-                            // 使用 GCS 的 size() 方法，只讀取元數據，不下載檔案
-                            $fileSize = $disk->size($nasPath);
-                            $fileSizeMB = round($fileSize / 1024 / 1024, 2);
-                            
-                            if ($fileSizeMB > $maxFileSizeMB) {
-                                $this->warn("\n⚠️  跳過（檔案過大）: {$documentFile['source_id']} (檔案大小: {$fileSizeMB}MB > {$maxFileSizeMB}MB)");
-                                $skippedCount++;
-                                $progressBar->advance();
-                                continue;
-                            }
-                            
-                            $this->line("\n✓ 檔案大小符合限制: {$documentFile['source_id']} ({$fileSizeMB}MB)");
-                        } else {
-                            $this->warn("\n⊘ 跳過（影片檔案不存在）: {$documentFile['source_id']} - {$nasPath}");
-                            $skippedCount++;
-                            $progressBar->advance();
-                            continue;
-                        }
-                    } catch (\Exception $e) {
-                        $this->warn("\n⊘ 跳過（無法取得檔案大小）: {$documentFile['source_id']} - {$e->getMessage()}");
-                        Log::warning('[AnalyzeFullCommand] 無法取得 GCS 檔案大小', [
-                            'source_id' => $documentFile['source_id'],
-                            'nas_path' => $nasPath,
-                            'error' => $e->getMessage(),
-                        ]);
-                        $skippedCount++;
-                        $progressBar->advance();
-                        continue;
-                    }
-                } else {
-                    // 對於非 GCS 儲存（nas, local, storage），使用原有邏輯
-                    $videoFilePath = $this->storageService->getVideoFilePath($storageType, $nasPath);
+                try {
+                    $fileSize = $disk->size($mp4File);
+                    $fileSizeMB = round($fileSize / 1024 / 1024, 2);
                     
-                    if (null === $videoFilePath) {
-                        $this->warn("\n⊘ 跳過（無法取得影片檔案路徑）: {$documentFile['source_id']}");
+                    if ($fileSizeMB > $maxFileSizeMB) {
+                        $this->warn("\n⚠️  跳過（檔案過大）: {$sourceId} (檔案大小: {$fileSizeMB}MB > {$maxFileSizeMB}MB)");
                         $skippedCount++;
                         $progressBar->advance();
                         continue;
                     }
-
-                    // 檢查檔案是否存在
-                    if (!file_exists($videoFilePath)) {
-                        $this->warn("\n⊘ 跳過（影片檔案不存在）: {$documentFile['source_id']} - {$videoFilePath}");
-                        $skippedCount++;
-                        $progressBar->advance();
-                        continue;
-                    }
-
-                    // 檢查檔案大小限制
-                    try {
-                        $fileSize = filesize($videoFilePath);
-                        $fileSizeMB = round($fileSize / 1024 / 1024, 2);
-                        
-                        if ($fileSizeMB > $maxFileSizeMB) {
-                            $this->warn("\n⚠️  跳過（檔案過大）: {$documentFile['source_id']} (檔案大小: {$fileSizeMB}MB > {$maxFileSizeMB}MB)");
-                            $skippedCount++;
-                            $progressBar->advance();
-                            continue;
-                        }
-                        
-                        $this->line("\n✓ 檔案大小符合限制: {$documentFile['source_id']} ({$fileSizeMB}MB)");
-                    } catch (\Exception $e) {
-                        $this->warn("\n⊘ 跳過（無法取得檔案大小）: {$documentFile['source_id']} - {$e->getMessage()}");
-                        Log::warning('[AnalyzeFullCommand] 無法取得檔案大小', [
-                            'source_id' => $documentFile['source_id'],
-                            'nas_path' => $nasPath,
-                            'video_file_path' => $videoFilePath,
-                            'error' => $e->getMessage(),
-                        ]);
-                        $skippedCount++;
-                        $progressBar->advance();
-                        continue;
-                    }
+                    
+                    $this->line("\n✓ 檔案大小符合限制: {$sourceId} ({$fileSizeMB}MB)");
+                } catch (\Exception $e) {
+                    $this->warn("\n⊘ 跳過（無法取得檔案大小）: {$sourceId} - {$e->getMessage()}");
+                    Log::warning('[AnalyzeFullCommand] 無法取得 GCS 檔案大小', [
+                        'source_id' => $sourceId,
+                        'mp4_file' => $mp4File,
+                        'error' => $e->getMessage(),
+                    ]);
+                    $skippedCount++;
+                    $progressBar->advance();
+                    continue;
                 }
 
-                // ========== 所有條件都符合，建立新的影片記錄並進行分析 ==========
-                $versionCheckEnabled = $this->versionChecker->shouldIncludeCompletedForVersionCheck($documentFile['source_name']);
-                $versionCheck = $this->versionChecker->shouldReanalyze(
-                    $documentFile['source_name'],
-                    null, // 已確認不存在，傳入 null
-                    $documentFile['file_version'] ?? null,
-                    $documentFile['file_path'] ?? null,
-                    'xml'
-                );
-
-                // 準備記錄資料
-                $createData = [
-                    'source_name' => $documentFile['source_name'],
-                    'source_id' => $documentFile['source_id'],
-                    'nas_path' => $nasPath,
-                    'fetched_at' => date('Y-m-d H:i:s', $documentFile['last_modified']),
-                    'file_size_mb' => $fileSizeMB, // 儲存已取得的檔案大小
-                ];
-
-                // 設定版本欄位
-                if ($versionCheckEnabled) {
-                    $createData['xml_file_version'] = $versionCheck['new_version'] ?? 0;
-                    $createData['mp4_file_version'] = 0;
-                } else {
-                    $createData['xml_file_version'] = 0;
-                    $createData['mp4_file_version'] = 0;
+                // 更新 nas_path 和 file_size_mb（如果尚未設定）
+                $updateData = [];
+                if ($video->nas_path !== $mp4File) {
+                    $updateData['nas_path'] = $mp4File;
                 }
-
-                // 建立新的影片記錄
-                $videoId = $this->videoRepository->findOrCreate($createData);
-                $isNewlyCreated = true; // 標記為新建立的記錄
-                
-                $this->line("→ 建立新記錄: {$documentFile['source_id']} (Video ID: {$videoId})");
+                if (null === $video->file_size_mb) {
+                    $updateData['file_size_mb'] = $fileSizeMB;
+                }
+                if (!empty($updateData)) {
+                    $this->videoRepository->update($videoId, $updateData);
+                }
 
                 // 將狀態更新為處理中
                 $this->videoRepository->updateAnalysisStatus(
@@ -334,26 +223,14 @@ class AnalyzeFullCommand extends Command
                     new \DateTime()
                 );
 
-                // ========== 優化：延遲下載影片檔案，只有在所有條件都通過後才下載 ==========
-                // 對於 GCS，現在才下載影片檔案（之前只檢查了元數據，避免下載大檔案後才發現不符合條件）
-                $isTempFile = false;
-                if ('gcs' === $storageType) {
-                    $this->line("→ 開始下載影片檔案（所有條件已通過）...");
-                    $videoFilePath = $this->storageService->getVideoFilePath($storageType, $nasPath);
-                    if (null === $videoFilePath) {
-                        throw new \Exception("無法下載影片檔案: {$nasPath}");
-                    }
-                    $isTempFile = true; // 標記為臨時檔案，需要清理
-                    $this->line("→ 已下載影片檔案到臨時位置: " . basename($videoFilePath));
+                // 下載影片檔案到臨時位置
+                $this->line("→ 開始下載影片檔案...");
+                $videoFilePath = $this->storageService->getVideoFilePath($storageType, $mp4File);
+                if (null === $videoFilePath) {
+                    throw new \Exception("無法下載影片檔案: {$mp4File}");
                 }
-                // 對於非 GCS 儲存，$videoFilePath 已在條件 3 檢查中獲取，無需重複獲取
-                // ================================================================
-
-                // ========== 重要：所有條件檢查已完成，準備發送 API 請求 ==========
-                // 條件 1: ✅ MP4 檔案存在
-                // 條件 2: ✅ videos 表中不存在記錄
-                // 條件 3: ✅ 檔案大小符合限制（≤ 300MB）
-                // ================================================================
+                $isTempFile = true; // 標記為臨時檔案，需要清理
+                $this->line("→ 已下載影片檔案到臨時位置: " . basename($videoFilePath));
 
                 // 執行完整分析（文本 + 影片）- 這裡會發送 Gemini API 請求
                 $analysisResult = $this->analyzeService->executeFullAnalysis(
@@ -364,11 +241,6 @@ class AnalyzeFullCommand extends Command
                 );
 
                 // ========== Gemini API 速率限制（無論成功或失敗都需要延遲）==========
-                // 根據 https://docs.cloud.google.com/gemini/docs/quotas?hl=zh-tw
-                // 每秒請求數 (RPS) 限制：2 次/秒
-                // 為避免超過限制，每次 API 請求後延遲 1 秒（保守策略）
-                // 這樣可確保 RPS < 1，遠低於限制值
-                // 注意：延遲必須在 API 請求之後，無論成功或失敗
                 $this->line("⏱  等待 1 秒以符合 API 速率限制...");
                 sleep(1);
                 // ========================================
@@ -379,7 +251,12 @@ class AnalyzeFullCommand extends Command
                     gc_collect_cycles();
                 }
 
-                $this->line("\n✓ 完成完整分析: {$documentFile['file_name']}");
+                // 更新 sync_status 為 'parsed'（已解析）
+                $this->videoRepository->update($videoId, [
+                    'sync_status' => SyncStatus::PARSED->value,
+                ]);
+
+                $this->line("\n✓ 完成完整分析: {$sourceId}");
                 $processedCount++;
             } catch (\Exception $e) {
                 $errorCount++;
@@ -412,45 +289,24 @@ class AnalyzeFullCommand extends Command
                 ]);
 
                 // ========== 如果已發送 API 請求但失敗，也需要延遲 ==========
-                // 確保無論成功或失敗，每次 API 請求後都有延遲
-                // 避免連續失敗時快速發送多個請求
                 if (isset($videoId)) {
-                    // 已建立記錄表示已通過所有條件檢查，可能已發送 API 請求
                     $this->line("⏱  等待 1 秒以符合 API 速率限制（失敗後延遲）...");
                     sleep(1);
                 }
                 // ========================================
 
                 // ========== 處理 429 錯誤（配額超限）==========
-                // 如果是 429 錯誤，建議停止處理或延長等待時間
                 if (str_contains($e->getMessage(), '429') || str_contains($e->getMessage(), 'quota')) {
                     $this->warn("\n⚠️  Gemini API 配額已超限，建議停止處理或檢查配額狀態");
                     Log::warning('[AnalyzeFullCommand] 檢測到 API 配額超限', [
-                        'source_id' => $documentFile['source_id'],
+                        'source_id' => $sourceId ?? null,
                         'error' => $e->getMessage(),
                     ]);
                 }
                 // ================================================================
 
-                // 如果是剛建立的記錄且分析失敗，刪除該記錄
-                // 避免在資料庫中累積大量失敗的空記錄
-                if (isset($videoId) && isset($isNewlyCreated) && $isNewlyCreated) {
-                    try {
-                        $this->videoRepository->delete($videoId);
-                        $this->line("\n⚠️  已刪除失敗的新記錄 (Video ID: {$videoId})");
-                        Log::info('[AnalyzeFullCommand] 已刪除分析失敗的新記錄', [
-                            'video_id' => $videoId,
-                            'source_id' => $documentFile['source_id'],
-                        ]);
-                    } catch (\Exception $deleteException) {
-                        Log::error('[AnalyzeFullCommand] 刪除失敗記錄時發生錯誤', [
-                            'video_id' => $videoId,
-                            'error' => $deleteException->getMessage(),
-                        ]);
-                    }
-                }
-
-                $this->error("\n✗ 分析失敗: {$documentFile['file_name']} - {$e->getMessage()}");
+                $errorSourceId = $sourceId ?? 'unknown';
+                $this->error("\n✗ 分析失敗: {$errorSourceId} - {$e->getMessage()}");
             }
 
             $progressBar->advance();
@@ -470,6 +326,10 @@ class AnalyzeFullCommand extends Command
                 ['錯誤', $errorCount],
             ]
         );
+        
+        if ($processedCount > 0) {
+            $this->info("✓ 已將 {$processedCount} 個記錄的 sync_status 更新為 'parsed'");
+        }
 
         return Command::SUCCESS;
     }

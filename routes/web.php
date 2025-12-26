@@ -17,6 +17,7 @@ use Illuminate\Support\Facades\Route;
 Route::get('/', [DashboardController::class, 'index'])->name('dashboard.index');
 Route::get('/dashboard', [DashboardController::class, 'index']);
 Route::get('/export', [DashboardController::class, 'export'])->name('dashboard.export');
+Route::get('/status', [DashboardController::class, 'status'])->name('dashboard.status');
 
 // GCS Proxy route for video streaming/download
 Route::get('/gcs-proxy/{path}', [App\Http\Controllers\GcsProxyController::class, 'stream'])

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Console\Commands;
 
+use App\Enums\SyncStatus;
+use App\Repositories\VideoRepository;
 use App\Services\Sources\CnnFetchService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Config;
@@ -46,9 +48,11 @@ class FetchCnnCommand extends Command
      * Create a new command instance.
      *
      * @param CnnFetchService $cnnFetchService
+     * @param VideoRepository $videoRepository
      */
     public function __construct(
-        private CnnFetchService $cnnFetchService
+        private CnnFetchService $cnnFetchService,
+        private VideoRepository $videoRepository
     ) {
         parent::__construct();
     }
@@ -145,6 +149,12 @@ class FetchCnnCommand extends Command
             return Command::SUCCESS;
         }
 
+        // 如果不是乾跑模式，記錄同步狀態到 videos 表
+        if (!$dryRun) {
+            $this->info('正在記錄同步狀態到資料庫...');
+            $this->recordSyncStatus($resources);
+        }
+
             // 統計資源類型
         $xmlCount = 0;
         $videoCount = 0;
@@ -179,6 +189,123 @@ class FetchCnnCommand extends Command
             $this->error('❌ 處理失敗: ' . $e->getMessage());
             return Command::FAILURE;
         }
+    }
+
+    /**
+     * 記錄同步狀態到 videos 表
+     * 
+     * @param array<int, array<string, mixed>> $resources
+     * @return void
+     */
+    private function recordSyncStatus(array $resources): void
+    {
+        $sourceName = 'CNN';
+        $processedUniqueIds = [];
+        
+        // 按 source_id 分組資源，確保每個唯一 ID 只處理一次
+        $groupedResources = [];
+        foreach ($resources as $resource) {
+            $sourceId = $resource['source_id'] ?? null;
+            if (null === $sourceId) {
+                continue;
+            }
+            
+            if (!isset($groupedResources[$sourceId])) {
+                $groupedResources[$sourceId] = [
+                    'source_id' => $sourceId,
+                    'has_xml' => false,
+                    'has_mp4' => false,
+                    'xml_path' => null,
+                    'mp4_path' => null,
+                    'last_modified' => null,
+                ];
+            }
+            
+            // 記錄檔案類型
+            if ('xml' === $resource['type']) {
+                $groupedResources[$sourceId]['has_xml'] = true;
+                $groupedResources[$sourceId]['xml_path'] = $resource['file_path'] ?? null;
+            } elseif ('video' === $resource['type']) {
+                $groupedResources[$sourceId]['has_mp4'] = true;
+                $groupedResources[$sourceId]['mp4_path'] = $resource['file_path'] ?? null;
+            }
+            
+            // 記錄最後修改時間（取最新的）
+            $resourceModified = $resource['last_modified'] ?? null;
+            if (null !== $resourceModified) {
+                if (null === $groupedResources[$sourceId]['last_modified'] || 
+                    $resourceModified > $groupedResources[$sourceId]['last_modified']) {
+                    $groupedResources[$sourceId]['last_modified'] = $resourceModified;
+                }
+            }
+        }
+        
+        // 處理每個唯一 ID
+        foreach ($groupedResources as $sourceId => $resourceInfo) {
+            try {
+                // 確定 nas_path（優先使用 MP4，如果沒有則使用 XML）
+                $nasPath = $resourceInfo['mp4_path'] ?? $resourceInfo['xml_path'] ?? null;
+                
+                if (null === $nasPath) {
+                    Log::warning('[FetchCnnCommand] 無法確定 nas_path', [
+                        'source_id' => $sourceId,
+                        'resource_info' => $resourceInfo,
+                    ]);
+                    continue;
+                }
+                
+                // 檢查是否已存在記錄
+                $existingVideo = $this->videoRepository->getBySourceId($sourceName, $sourceId);
+                
+                if (null !== $existingVideo) {
+                    // 更新現有記錄
+                    $updateData = [
+                        'nas_path' => $nasPath,
+                        'sync_status' => SyncStatus::SYNCED->value,
+                    ];
+                    
+                    // 如果有最後修改時間，更新 fetched_at
+                    if (null !== $resourceInfo['last_modified']) {
+                        $updateData['fetched_at'] = date('Y-m-d H:i:s', $resourceInfo['last_modified']);
+                    }
+                    
+                    $this->videoRepository->update($existingVideo->id, $updateData);
+                    Log::info('[FetchCnnCommand] 已更新同步狀態', [
+                        'source_id' => $sourceId,
+                        'video_id' => $existingVideo->id,
+                        'sync_status' => SyncStatus::SYNCED->value,
+                    ]);
+                } else {
+                    // 建立新記錄
+                    $createData = [
+                        'source_name' => $sourceName,
+                        'source_id' => $sourceId,
+                        'nas_path' => $nasPath,
+                        'sync_status' => SyncStatus::UPDATED->value,
+                        'fetched_at' => null !== $resourceInfo['last_modified'] 
+                            ? date('Y-m-d H:i:s', $resourceInfo['last_modified'])
+                            : date('Y-m-d H:i:s'),
+                    ];
+                    
+                    $videoId = $this->videoRepository->findOrCreate($createData);
+                    Log::info('[FetchCnnCommand] 已建立新記錄', [
+                        'source_id' => $sourceId,
+                        'video_id' => $videoId,
+                        'sync_status' => SyncStatus::UPDATED->value,
+                    ]);
+                }
+                
+                $processedUniqueIds[] = $sourceId;
+            } catch (\Exception $e) {
+                Log::error('[FetchCnnCommand] 記錄同步狀態失敗', [
+                    'source_id' => $sourceId,
+                    'error' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString(),
+                ]);
+            }
+        }
+        
+        $this->info("已記錄 " . count($processedUniqueIds) . " 個唯一 ID 的同步狀態");
     }
 }
 

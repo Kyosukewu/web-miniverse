@@ -47,6 +47,7 @@ class Video extends Model
         'tran_restrictions',
         'prompt_version',
         'analysis_status',
+        'sync_status',
         'analyzed_at',
         'source_metadata',
     ];
