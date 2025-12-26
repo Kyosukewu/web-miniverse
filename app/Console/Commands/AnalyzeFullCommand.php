@@ -251,6 +251,26 @@ class AnalyzeFullCommand extends Command
                     gc_collect_cycles();
                 }
 
+                // ========== 立即清理臨時檔案（分析成功後立即刪除，釋放空間）==========
+                if ($isTempFile && isset($videoFilePath) && file_exists($videoFilePath)) {
+                    try {
+                        $tempFileSize = filesize($videoFilePath);
+                        if (@unlink($videoFilePath)) {
+                            $this->line("🗑️  已清理臨時檔案: " . basename($videoFilePath) . " (" . round($tempFileSize / 1024 / 1024, 2) . "MB)");
+                            Log::debug('[AnalyzeFullCommand] 分析成功後已清理臨時檔案', [
+                                'temp_path' => $videoFilePath,
+                                'size_mb' => round($tempFileSize / 1024 / 1024, 2),
+                            ]);
+                        }
+                    } catch (\Exception $cleanupException) {
+                        Log::warning('[AnalyzeFullCommand] 清理臨時檔案失敗', [
+                            'temp_path' => $videoFilePath,
+                            'error' => $cleanupException->getMessage(),
+                        ]);
+                    }
+                }
+                // ================================================================
+
                 // 更新 sync_status 為 'parsed'（已解析）
                 $this->videoRepository->update($videoId, [
                     'sync_status' => SyncStatus::PARSED->value,
