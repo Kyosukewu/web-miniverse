@@ -317,7 +317,7 @@ class VideoRepository
                 $query->whereNull('file_size_mb')
                       ->orWhere('file_size_mb', '<=', 300);
             })
-            ->orderBy('fetched_at', 'asc')
+            ->orderBy('published_at', 'desc')
             ->limit($limit)
             ->get();
     }
