@@ -87,19 +87,7 @@ class VideoRepository
         string $sortOrder = ''
     ): \Illuminate\Database\Eloquent\Builder {
         $query = Video::with('analysisResult')
-            ->where(function ($q) {
-                // 顯示已解析完成的資料：
-                // 1. sync_status = 'parsed'（新流程）
-                // 2. analysis_status = 'completed' 且 sync_status 為 null（舊流程，向後兼容）
-                $q->where('sync_status', 'parsed')
-                  ->orWhere(function ($subQ) {
-                      $subQ->where('analysis_status', AnalysisStatus::COMPLETED->value)
-                           ->where(function ($nullQ) {
-                               $nullQ->whereNull('sync_status')
-                                     ->orWhere('sync_status', '');
-                           });
-                  });
-            });
+            ->where('analysis_status', AnalysisStatus::COMPLETED);
 
         if ('' !== $searchTerm) {
             $query->where(function ($q) use ($searchTerm) {

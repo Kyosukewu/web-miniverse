@@ -17,11 +17,15 @@ use Illuminate\Support\Facades\Log;
  * 
  * 此命令用於在新增 sync_status 欄位後，為現有的 videos 記錄補上對應的狀態資訊。
  * 
- * 更新邏輯：
- * 1. 如果 analysis_status = 'completed' 且有 analysis_result → sync_status = 'parsed'
- * 2. 如果 analysis_status = 'completed' 但沒有 analysis_result → sync_status = 'parsed'（已分析完成）
- * 3. 如果 analysis_status != 'completed' 但 nas_path 存在 → sync_status = 'synced'（已同步到 GCS）
- * 4. 如果 nas_path 不存在或為空 → sync_status = 'updated'（可能需要重新同步）
+ * 更新邏輯（優先順序）：
+ * 1. 如果 analysis_status = 'completed' → sync_status = 'parsed'（已解析完成，最高優先級）
+ *    - 無論 sync_status 當前值為何，都會強制更新為 'parsed'
+ * 2. 如果 analysis_status != 'completed' 但 nas_path 存在 → sync_status = 'synced'（已同步到 GCS）
+ * 3. 如果 nas_path 不存在或為空 → sync_status = 'updated'（可能需要重新同步）
+ * 
+ * 處理範圍：
+ * - sync_status 為 null 或空字串的記錄（尚未設定狀態）
+ * - analysis_status = 'completed' 但 sync_status != 'parsed' 的記錄（強制更新為 parsed）
  */
 class UpdateSyncStatusCommand extends Command
 {
@@ -77,10 +81,23 @@ class UpdateSyncStatusCommand extends Command
             $this->info("📊 只處理來源: {$sourceName}");
         }
 
-        // 只處理 sync_status 為 null 或空字串的記錄（尚未設定狀態的記錄）
+        // 處理以下情況的記錄：
+        // 1. sync_status 為 null 或空字串（尚未設定狀態）
+        // 2. analysis_status = 'completed' 但 sync_status != 'parsed'（需要強制更新為 parsed）
         $query->where(function ($q) {
-            $q->whereNull('sync_status')
-              ->orWhere('sync_status', '');
+            $q->where(function ($subQ) {
+                // 尚未設定狀態的記錄
+                $subQ->whereNull('sync_status')
+                     ->orWhere('sync_status', '');
+            })->orWhere(function ($subQ) {
+                // analysis_status = 'completed' 但 sync_status != 'parsed' 的記錄
+                $subQ->where('analysis_status', AnalysisStatus::COMPLETED->value)
+                     ->where(function ($statusQ) {
+                         $statusQ->where('sync_status', '!=', SyncStatus::PARSED->value)
+                                 ->orWhereNull('sync_status')
+                                 ->orWhere('sync_status', '');
+                     });
+            });
         });
 
         $totalCount = $query->count();
