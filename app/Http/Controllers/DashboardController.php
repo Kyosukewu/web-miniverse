@@ -104,6 +104,14 @@ class DashboardController extends Controller
         $perPage = (int) $request->query('per_page', 50);
         $videos = $query->paginate($perPage)->withQueryString();
         
+        // 獲取統計數據
+        $statistics = $this->videoRepository->getStatusStatistics(
+            $searchTerm,
+            $sourceName,
+            $publishedFrom,
+            $publishedTo
+        );
+        
         return view('status', [
             'videos' => $videos,
             'searchTerm' => $searchTerm,
@@ -113,6 +121,7 @@ class DashboardController extends Controller
             'publishedFrom' => $publishedFrom,
             'publishedTo' => $publishedTo,
             'hideMissingFiles' => $hideMissingFiles,
+            'statistics' => $statistics,
         ]);
     }
 

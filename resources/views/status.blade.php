@@ -183,6 +183,11 @@
             color: white;
         }
 
+        .status-file-too-large {
+            background-color: #ff9800;
+            color: white;
+        }
+
         .status-parsed {
             background-color: #17a2b8;
             color: white;
@@ -236,6 +241,44 @@
             text-overflow: ellipsis;
             white-space: nowrap;
         }
+
+        .statistics-overview {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            color: white;
+        }
+
+        .statistics-overview h2 {
+            margin: 0 0 15px 0;
+            font-size: 18px;
+            font-weight: 600;
+        }
+
+        .statistics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+        }
+
+        .stat-item {
+            background: rgba(255, 255, 255, 0.15);
+            padding: 12px;
+            border-radius: 6px;
+            backdrop-filter: blur(10px);
+        }
+
+        .stat-item-label {
+            font-size: 12px;
+            opacity: 0.9;
+            margin-bottom: 5px;
+        }
+
+        .stat-item-value {
+            font-size: 24px;
+            font-weight: 700;
+        }
     </style>
 </head>
 
@@ -246,6 +289,36 @@
                 <h1>MINIVERSE - 影片狀態列表</h1>
                 <div>
                     <a href="{{ route('dashboard.index') }}" class="nav-link">返回儀表板</a>
+                </div>
+            </div>
+
+            <div class="statistics-overview">
+                <h2>📊 資料總覽</h2>
+                <div class="statistics-grid">
+                    <div class="stat-item">
+                        <div class="stat-item-label">總共</div>
+                        <div class="stat-item-value">{{ number_format($statistics['total'] ?? 0) }}</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-item-label">缺少 XML</div>
+                        <div class="stat-item-value">{{ number_format($statistics['missing_xml'] ?? 0) }}</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-item-label">缺少 MP4</div>
+                        <div class="stat-item-value">{{ number_format($statistics['missing_mp4'] ?? 0) }}</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-item-label">檔案過大</div>
+                        <div class="stat-item-value">{{ number_format($statistics['file_too_large'] ?? 0) }}</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-item-label">待更新</div>
+                        <div class="stat-item-value">{{ number_format($statistics['pending_update'] ?? 0) }}</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-item-label">已完成</div>
+                        <div class="stat-item-value">{{ number_format($statistics['completed'] ?? 0) }}</div>
+                    </div>
                 </div>
             </div>
 
@@ -273,12 +346,6 @@
                         <input type="date" id="published_to" name="published_to" value="{{ $publishedTo }}">
                     </div>
                     <div class="filter-group">
-                        <label for="hide_missing_files">
-                            <input type="checkbox" id="hide_missing_files" name="hide_missing_files" value="1" {{ $hideMissingFiles ? 'checked' : '' }}>
-                            <span>隱藏缺少 XML 或 MP4 檔案的資料</span>
-                        </label>
-                    </div>
-                    <div class="filter-group">
                         <label for="sortBy">排序依據</label>
                         <select id="sortBy" name="sortBy">
                             <option value="id" {{ $sortBy === 'id' ? 'selected' : '' }}>ID</option>
@@ -295,6 +362,12 @@
                             <option value="desc" {{ $sortOrder === 'desc' ? 'selected' : '' }}>降冪</option>
                             <option value="asc" {{ $sortOrder === 'asc' ? 'selected' : '' }}>升冪</option>
                         </select>
+                    </div>
+                    <div class="filter-group">
+                        <label for="hide_missing_files">
+                            <input type="checkbox" id="hide_missing_files" name="hide_missing_files" value="1" {{ $hideMissingFiles ? 'checked' : '' }}>
+                            <span>隱藏缺少 XML 或 MP4 檔案的資料</span>
+                        </label>
                     </div>
                     <div class="filter-group">
                         <div class="filter-buttons">
@@ -341,6 +414,7 @@
                                                 'processing', 'metadata_extracting', 'metadata_extracted' => 'status-processing',
                                                 'pending' => 'status-pending',
                                                 'failed', 'txt_analysis_failed', 'video_analysis_failed' => 'status-failed',
+                                                'file_too_large' => 'status-file-too-large',
                                                 default => 'status-pending',
                                             };
                                         @endphp

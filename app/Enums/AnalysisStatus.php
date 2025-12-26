@@ -14,5 +14,6 @@ enum AnalysisStatus: string
     case VIDEO_ANALYSIS_FAILED = 'video_analysis_failed';
     case COMPLETED = 'completed';
     case FAILED = 'failed';
+    case FILE_TOO_LARGE = 'file_too_large';
 }
 

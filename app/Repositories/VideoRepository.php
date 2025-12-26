@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Repositories;
 
 use App\Enums\AnalysisStatus;
+use App\Enums\SyncStatus;
 use App\Models\Video;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Carbon;
@@ -39,6 +40,21 @@ class VideoRepository
     public function getById(int $videoId): ?Video
     {
         return Video::find($videoId);
+    }
+
+    /**
+     * Get videos by IDs.
+     *
+     * @param array<int> $videoIds
+     * @return Collection<int, Video>
+     */
+    public function getByIds(array $videoIds): Collection
+    {
+        if (empty($videoIds)) {
+            return collect();
+        }
+
+        return Video::whereIn('id', $videoIds)->get();
     }
 
     /**
@@ -361,8 +377,11 @@ class VideoRepository
             ->whereIn('sync_status', ['updated', 'synced'])
             ->whereNotNull('xml_file_version')
             ->whereNotNull('mp4_file_version')
+            // 排除檔案過大的影片（analysis_status = 'file_too_large'）
+            ->where('analysis_status', '!=', AnalysisStatus::FILE_TOO_LARGE->value)
             ->where(function ($q) {
                 // 排除檔案過大的影片（超過 Gemini API 限制 300MB）
+                // 注意：如果 file_size_mb 已設定且 > 300，應該已經被標記為 file_too_large
                 $q->whereNull('file_size_mb')
                   ->orWhere('file_size_mb', '<=', 300);
             });
@@ -372,7 +391,7 @@ class VideoRepository
             $query->whereNotIn('id', $excludeIds);
         }
         
-        return $query->orderBy('id', 'desc')
+        return $query->orderBy('published_at', 'desc')
             ->limit($limit)
             ->get();
     }
@@ -455,6 +474,95 @@ class VideoRepository
         $query->orderBy($dbColumn, $order);
 
         return $query;
+    }
+
+    /**
+     * 獲取狀態頁面的統計數據。
+     *
+     * @param string $searchTerm
+     * @param string $sourceName
+     * @param string $publishedFrom
+     * @param string $publishedTo
+     * @return array<string, int>
+     */
+    public function getStatusStatistics(
+        string $searchTerm = '',
+        string $sourceName = '',
+        string $publishedFrom = '',
+        string $publishedTo = ''
+    ): array {
+        // 基礎查詢（應用搜尋、來源、時間範圍篩選）
+        $baseQuery = Video::query();
+
+        // 搜尋條件
+        if ('' !== $searchTerm) {
+            $baseQuery->where(function ($q) use ($searchTerm) {
+                $q->where('id', 'like', '%' . $searchTerm . '%')
+                    ->orWhere('source_id', 'like', '%' . $searchTerm . '%')
+                    ->orWhere('title', 'like', '%' . $searchTerm . '%');
+            });
+        }
+
+        // 來源篩選
+        if ('' !== $sourceName) {
+            $baseQuery->where('source_name', strtoupper($sourceName));
+        }
+
+        // 發布時間範圍篩選
+        if ('' !== $publishedFrom) {
+            try {
+                $fromDate = new \DateTime($publishedFrom);
+                $baseQuery->where('published_at', '>=', $fromDate->format('Y-m-d 00:00:00'));
+            } catch (\Exception $e) {
+                // 忽略無效的日期格式
+            }
+        }
+
+        if ('' !== $publishedTo) {
+            try {
+                $toDate = new \DateTime($publishedTo);
+                $baseQuery->where('published_at', '<=', $toDate->format('Y-m-d 23:59:59'));
+            } catch (\Exception $e) {
+                // 忽略無效的日期格式
+            }
+        }
+
+        // 總數
+        $total = (clone $baseQuery)->count();
+
+        // 缺少 XML
+        $missingXml = (clone $baseQuery)->whereNull('xml_file_version')->count();
+
+        // 缺少 MP4
+        $missingMp4 = (clone $baseQuery)->whereNull('mp4_file_version')->count();
+
+        // 檔案過大
+        $fileTooLarge = (clone $baseQuery)->where('analysis_status', AnalysisStatus::FILE_TOO_LARGE->value)->count();
+
+        // 待更新（sync_status = 'updated' 或 'synced'）
+        $pendingUpdate = (clone $baseQuery)
+            ->whereIn('sync_status', ['updated', 'synced'])
+            ->whereNotNull('xml_file_version')
+            ->whereNotNull('mp4_file_version')
+            ->where('analysis_status', '!=', AnalysisStatus::FILE_TOO_LARGE->value)
+            ->count();
+
+        // 已完成（analysis_status = 'completed' 或 sync_status = 'parsed'）
+        $completed = (clone $baseQuery)
+            ->where(function ($q) {
+                $q->where('analysis_status', AnalysisStatus::COMPLETED->value)
+                  ->orWhere('sync_status', SyncStatus::PARSED->value);
+            })
+            ->count();
+
+        return [
+            'total' => $total,
+            'missing_xml' => $missingXml,
+            'missing_mp4' => $missingMp4,
+            'file_too_large' => $fileTooLarge,
+            'pending_update' => $pendingUpdate,
+            'completed' => $completed,
+        ];
     }
 }
 
