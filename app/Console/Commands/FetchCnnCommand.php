@@ -7,6 +7,7 @@ namespace App\Console\Commands;
 use App\Enums\SyncStatus;
 use App\Repositories\VideoRepository;
 use App\Services\Sources\CnnFetchService;
+use App\Services\StorageService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Log;
@@ -49,10 +50,12 @@ class FetchCnnCommand extends Command
      *
      * @param CnnFetchService $cnnFetchService
      * @param VideoRepository $videoRepository
+     * @param StorageService $storageService
      */
     public function __construct(
         private CnnFetchService $cnnFetchService,
-        private VideoRepository $videoRepository
+        private VideoRepository $videoRepository,
+        private StorageService $storageService
     ) {
         parent::__construct();
     }
@@ -194,6 +197,12 @@ class FetchCnnCommand extends Command
     /**
      * 記錄同步狀態到 videos 表
      * 
+     * 邏輯：
+     * 1. 如果檔案在 videos 有存在相同的 ID，且 mp4/xml 檔案的版本比資料庫紀錄的大時，
+     *    才將 videos 中 sync_status 改成 updated 狀態以供後續分析可以重新抓取
+     * 2. 如果存在相同 ID 但是檔案版本沒變時，不做任何動作
+     * 3. 如果不存在該 ID，則新增一筆資料
+     * 
      * @param array<int, array<string, mixed>> $resources
      * @return void
      */
@@ -201,6 +210,9 @@ class FetchCnnCommand extends Command
     {
         $sourceName = 'CNN';
         $processedUniqueIds = [];
+        $updatedCount = 0;
+        $skippedCount = 0;
+        $createdCount = 0;
         
         // 按 source_id 分組資源，確保每個唯一 ID 只處理一次
         $groupedResources = [];
@@ -217,17 +229,29 @@ class FetchCnnCommand extends Command
                     'has_mp4' => false,
                     'xml_path' => null,
                     'mp4_path' => null,
+                    'xml_version' => null,
+                    'mp4_version' => null,
                     'last_modified' => null,
                 ];
             }
             
-            // 記錄檔案類型
+            // 記錄檔案類型和版本
             if ('xml' === $resource['type']) {
                 $groupedResources[$sourceId]['has_xml'] = true;
                 $groupedResources[$sourceId]['xml_path'] = $resource['file_path'] ?? null;
+                // 從檔案路徑提取檔案名並取得版本號
+                if (null !== $groupedResources[$sourceId]['xml_path']) {
+                    $fileName = basename($groupedResources[$sourceId]['xml_path']);
+                    $groupedResources[$sourceId]['xml_version'] = $this->storageService->extractFileVersion($fileName);
+                }
             } elseif ('video' === $resource['type']) {
                 $groupedResources[$sourceId]['has_mp4'] = true;
                 $groupedResources[$sourceId]['mp4_path'] = $resource['file_path'] ?? null;
+                // 從檔案路徑提取檔案名並取得版本號
+                if (null !== $groupedResources[$sourceId]['mp4_path']) {
+                    $fileName = basename($groupedResources[$sourceId]['mp4_path']);
+                    $groupedResources[$sourceId]['mp4_version'] = $this->storageService->extractFileVersion($fileName);
+                }
             }
             
             // 記錄最後修改時間（取最新的）
@@ -258,25 +282,57 @@ class FetchCnnCommand extends Command
                 $existingVideo = $this->videoRepository->getBySourceId($sourceName, $sourceId);
                 
                 if (null !== $existingVideo) {
-                    // 更新現有記錄
+                    // 情況 1 & 2: 已存在記錄，需要比較版本
+                    $shouldUpdate = false;
                     $updateData = [
                         'nas_path' => $nasPath,
-                        'sync_status' => SyncStatus::SYNCED->value,
                     ];
+                    
+                    // 比較 XML 版本
+                    $newXmlVersion = $resourceInfo['xml_version'] ?? null;
+                    $existingXmlVersion = $existingVideo->xml_file_version ?? 0;
+                    if (null !== $newXmlVersion && $newXmlVersion > $existingXmlVersion) {
+                        $updateData['xml_file_version'] = $newXmlVersion;
+                        $shouldUpdate = true;
+                    }
+                    
+                    // 比較 MP4 版本
+                    $newMp4Version = $resourceInfo['mp4_version'] ?? null;
+                    $existingMp4Version = $existingVideo->mp4_file_version ?? 0;
+                    if (null !== $newMp4Version && $newMp4Version > $existingMp4Version) {
+                        $updateData['mp4_file_version'] = $newMp4Version;
+                        $shouldUpdate = true;
+                    }
                     
                     // 如果有最後修改時間，更新 fetched_at
                     if (null !== $resourceInfo['last_modified']) {
                         $updateData['fetched_at'] = date('Y-m-d H:i:s', $resourceInfo['last_modified']);
                     }
                     
-                    $this->videoRepository->update($existingVideo->id, $updateData);
-                    Log::info('[FetchCnnCommand] 已更新同步狀態', [
-                        'source_id' => $sourceId,
-                        'video_id' => $existingVideo->id,
-                        'sync_status' => SyncStatus::SYNCED->value,
-                    ]);
+                    if ($shouldUpdate) {
+                        // 情況 1: 版本較大，更新 sync_status 為 updated
+                        $updateData['sync_status'] = SyncStatus::UPDATED->value;
+                        $this->videoRepository->update($existingVideo->id, $updateData);
+                        $updatedCount++;
+                        Log::info('[FetchCnnCommand] 已更新記錄（版本較大）', [
+                            'source_id' => $sourceId,
+                            'video_id' => $existingVideo->id,
+                            'xml_version' => ['old' => $existingXmlVersion, 'new' => $newXmlVersion],
+                            'mp4_version' => ['old' => $existingMp4Version, 'new' => $newMp4Version],
+                            'sync_status' => SyncStatus::UPDATED->value,
+                        ]);
+                    } else {
+                        // 情況 2: 版本相同或更小，不做任何動作
+                        $skippedCount++;
+                        Log::debug('[FetchCnnCommand] 跳過更新（版本未變或較小）', [
+                            'source_id' => $sourceId,
+                            'video_id' => $existingVideo->id,
+                            'xml_version' => ['db' => $existingXmlVersion, 'file' => $newXmlVersion],
+                            'mp4_version' => ['db' => $existingMp4Version, 'file' => $newMp4Version],
+                        ]);
+                    }
                 } else {
-                    // 建立新記錄
+                    // 情況 3: 不存在該 ID，新增一筆資料
                     $createData = [
                         'source_name' => $sourceName,
                         'source_id' => $sourceId,
@@ -287,10 +343,21 @@ class FetchCnnCommand extends Command
                             : date('Y-m-d H:i:s'),
                     ];
                     
+                    // 如果有版本資訊，一併記錄
+                    if (null !== $resourceInfo['xml_version']) {
+                        $createData['xml_file_version'] = $resourceInfo['xml_version'];
+                    }
+                    if (null !== $resourceInfo['mp4_version']) {
+                        $createData['mp4_file_version'] = $resourceInfo['mp4_version'];
+                    }
+                    
                     $videoId = $this->videoRepository->findOrCreate($createData);
+                    $createdCount++;
                     Log::info('[FetchCnnCommand] 已建立新記錄', [
                         'source_id' => $sourceId,
                         'video_id' => $videoId,
+                        'xml_version' => $resourceInfo['xml_version'],
+                        'mp4_version' => $resourceInfo['mp4_version'],
                         'sync_status' => SyncStatus::UPDATED->value,
                     ]);
                 }
@@ -305,7 +372,10 @@ class FetchCnnCommand extends Command
             }
         }
         
-        $this->info("已記錄 " . count($processedUniqueIds) . " 個唯一 ID 的同步狀態");
+        $this->info("已處理 " . count($processedUniqueIds) . " 個唯一 ID 的同步狀態");
+        $this->info("  - 新增: {$createdCount}");
+        $this->info("  - 更新（版本較大）: {$updatedCount}");
+        $this->info("  - 跳過（版本未變）: {$skippedCount}");
     }
 }
 

@@ -143,20 +143,20 @@ class RecoverStuckAnalysisCommand extends Command
                     ]);
                 } else {
                     // 重置模式：重置為 METADATA_EXTRACTING（適用於 analyze:document/analyze:video）
-                    $this->videoRepository->updateAnalysisStatus(
-                        $video->id,
-                        AnalysisStatus::METADATA_EXTRACTING,
-                        new \DateTime()
-                    );
+                $this->videoRepository->updateAnalysisStatus(
+                    $video->id,
+                    AnalysisStatus::METADATA_EXTRACTING,
+                    new \DateTime()
+                );
                     $processedCount++;
 
-                    Log::info('[RecoverStuckAnalysis] 重置卡住的任務', [
-                        'video_id' => $video->id,
-                        'source_id' => $video->source_id,
-                        'stuck_at' => $video->updated_at,
-                        'stuck_minutes' => now()->diffInMinutes(\Carbon\Carbon::parse($video->updated_at)),
+                Log::info('[RecoverStuckAnalysis] 重置卡住的任務', [
+                    'video_id' => $video->id,
+                    'source_id' => $video->source_id,
+                    'stuck_at' => $video->updated_at,
+                    'stuck_minutes' => now()->diffInMinutes(\Carbon\Carbon::parse($video->updated_at)),
                         'mode' => 'reset',
-                    ]);
+                ]);
                 }
             } catch (\Exception $e) {
                 $errorCount++;

@@ -760,13 +760,13 @@ class StorageService
                     throw new \Exception("檔案下載不完整：預期 {$fileSize} bytes，實際 " . (file_exists($tempPath) ? filesize($tempPath) : 0) . " bytes");
                 }
 
-                Log::info('[StorageService] GCS 檔案下載到臨時位置', [
-                    'gcs_path' => $filePath,
-                    'temp_path' => $tempPath,
+            Log::info('[StorageService] GCS 檔案下載到臨時位置', [
+                'gcs_path' => $filePath,
+                'temp_path' => $tempPath,
                     'file_size_mb' => $fileSizeMB,
-                ]);
+            ]);
 
-                return $tempPath;
+            return $tempPath;
             } catch (\Exception $streamException) {
                 // Clean up partial file if exists
                 if (null !== $tempPath && file_exists($tempPath)) {
