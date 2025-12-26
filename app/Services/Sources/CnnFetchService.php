@@ -430,6 +430,28 @@ class CnnFetchService implements FetchServiceInterface
 
         // Check if file already exists in GCS (same filename = same version)
         if ($gcsDisk->exists($targetPath)) {
+            // 如果文件已存在於 GCS，且不使用 --keep-local，則刪除本地文件
+            if (!$keepLocal) {
+                if (@unlink($file['path'])) {
+                    Log::info('[CnnFetchService] 檔案已存在於 GCS，已刪除本地檔案', [
+                        'local_path' => $file['path'],
+                        'gcs_path' => $targetPath,
+                        'unique_id' => $uniqueId,
+                    ]);
+                } else {
+                    Log::warning('[CnnFetchService] 檔案已存在於 GCS，但無法刪除本地檔案', [
+                        'local_path' => $file['path'],
+                        'gcs_path' => $targetPath,
+                        'unique_id' => $uniqueId,
+                    ]);
+                }
+            } else {
+                Log::debug('[CnnFetchService] 檔案已存在於 GCS，保留本地檔案（--keep-local 模式）', [
+                    'local_path' => $file['path'],
+                    'gcs_path' => $targetPath,
+                    'unique_id' => $uniqueId,
+                ]);
+            }
             return ['moved' => false, 'skipped' => true, 'error' => false];
         }
 
