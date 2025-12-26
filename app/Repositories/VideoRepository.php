@@ -359,6 +359,8 @@ class VideoRepository
     {
         $query = Video::where('source_name', strtoupper($sourceName))
             ->whereIn('sync_status', ['updated', 'synced'])
+            ->whereNotNull('xml_file_version')
+            ->whereNotNull('mp4_file_version')
             ->where(function ($q) {
                 // 排除檔案過大的影片（超過 Gemini API 限制 300MB）
                 $q->whereNull('file_size_mb')
@@ -370,7 +372,7 @@ class VideoRepository
             $query->whereNotIn('id', $excludeIds);
         }
         
-        return $query->orderBy('published_at', 'desc')
+        return $query->orderBy('id', 'desc')
             ->limit($limit)
             ->get();
     }
