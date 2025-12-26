@@ -103,7 +103,10 @@ class VideoRepository
             
             if ('importance' === $sortBy) {
                 // Sort by importance_rating in analysis_results table
-                $query->leftJoin('analysis_results', 'videos.id', '=', 'analysis_results.video_id')
+                // 使用 join 而不是 leftJoin，因為 completed 狀態的視頻應該都有 analysis_result
+                // 添加 groupBy 避免重複記錄，並優化分頁查詢性能
+                $query->join('analysis_results', 'videos.id', '=', 'analysis_results.video_id')
+                      ->groupBy('videos.id')
                       ->orderBy('analysis_results.importance_rating', $order)
                       ->orderBy('videos.published_at', 'desc') // Secondary sort
                       ->select('videos.*');
@@ -174,7 +177,10 @@ class VideoRepository
             
             if ('importance' === $sortBy) {
                 // Sort by importance_rating in analysis_results table
-                $query->leftJoin('analysis_results', 'videos.id', '=', 'analysis_results.video_id')
+                // 使用 join 而不是 leftJoin，因為有 analysis_result 的視頻應該都有記錄
+                // 添加 groupBy 避免重複記錄
+                $query->join('analysis_results', 'videos.id', '=', 'analysis_results.video_id')
+                      ->groupBy('videos.id')
                       ->orderBy('analysis_results.importance_rating', $order)
                       ->orderBy('videos.published_at', 'desc') // Secondary sort
                       ->select('videos.*');
