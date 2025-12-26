@@ -130,6 +130,7 @@
     }
 
     .filter-group input[type="text"],
+    .filter-group input[type="date"],
     .filter-group select {
         width: 100%;
         padding: 8px;

@@ -77,57 +77,61 @@
         const checkedBoxes = document.querySelectorAll('.video-checkbox:checked');
         const selectedIds = Array.from(checkedBoxes).map(cb => cb.value);
 
-        // 獲取當前的篩選和排序參數
-        const searchTerm = document.getElementById('keywordSearchInput').value;
-        const sortBy = document.getElementById('sortBySelect').value;
-        const sortOrder = document.getElementById('sortOrderSelect').value;
+                // 獲取當前的篩選和排序參數
+                const searchTerm = document.getElementById('keywordSearchInput').value;
+                const sortBy = document.getElementById('sortBySelect').value;
+                const sortOrder = document.getElementById('sortOrderSelect').value;
+                const publishedFrom = document.getElementById('publishedFromInput').value;
+                const publishedTo = document.getElementById('publishedToInput').value;
 
-        // 構建確認訊息
-        let confirmMessage = '';
-        if (selectedIds.length === 0) {
-            confirmMessage = '未選擇任何資料，將匯出<strong>全部資料</strong>（依目前篩選與排序條件）。\n\n確定要匯出嗎？';
-        } else {
-            confirmMessage = `已選擇 <strong>${selectedIds.length} 筆資料</strong>，確定要匯出嗎？`;
-        }
-
-        // 顯示確認對話框
-        Swal.fire({
-            title: '確認匯出資料',
-            html: confirmMessage,
-            icon: 'question',
-            showCancelButton: true,
-            confirmButtonText: '確定匯出',
-            cancelButtonText: '取消',
-            confirmButtonColor: '#217346',
-            cancelButtonColor: '#6c757d',
-            reverseButtons: true
-        }).then((result) => {
-            if (result.isConfirmed) {
-                // 顯示處理中提示
-                Swal.fire({
-                    title: '正在匯出...',
-                    html: selectedIds.length === 0 
-                        ? '正在準備匯出全部資料，請稍候...' 
-                        : `正在準備匯出 ${selectedIds.length} 筆資料，請稍候...`,
-                    icon: 'info',
-                    allowOutsideClick: false,
-                    allowEscapeKey: false,
-                    showConfirmButton: false,
-                    didOpen: () => {
-                        Swal.showLoading();
-                    }
-                });
-
-                btn.disabled = true;
-
-                // 構建 URL，包含選中的 ID、篩選和排序參數
-                const params = new URLSearchParams();
-                if (selectedIds.length > 0) {
-                    params.append('ids', selectedIds.join(','));
+                // 構建確認訊息
+                let confirmMessage = '';
+                if (selectedIds.length === 0) {
+                    confirmMessage = '未選擇任何資料，將匯出<strong>全部資料</strong>（依目前篩選與排序條件）。\n\n確定要匯出嗎？';
+                } else {
+                    confirmMessage = `已選擇 <strong>${selectedIds.length} 筆資料</strong>，確定要匯出嗎？`;
                 }
-                if (searchTerm) params.append('search', searchTerm);
-                if (sortBy) params.append('sortBy', sortBy);
-                if (sortOrder) params.append('sortOrder', sortOrder);
+
+                // 顯示確認對話框
+                Swal.fire({
+                    title: '確認匯出資料',
+                    html: confirmMessage,
+                    icon: 'question',
+                    showCancelButton: true,
+                    confirmButtonText: '確定匯出',
+                    cancelButtonText: '取消',
+                    confirmButtonColor: '#217346',
+                    cancelButtonColor: '#6c757d',
+                    reverseButtons: true
+                }).then((result) => {
+                    if (result.isConfirmed) {
+                        // 顯示處理中提示
+                        Swal.fire({
+                            title: '正在匯出...',
+                            html: selectedIds.length === 0 
+                                ? '正在準備匯出全部資料，請稍候...' 
+                                : `正在準備匯出 ${selectedIds.length} 筆資料，請稍候...`,
+                            icon: 'info',
+                            allowOutsideClick: false,
+                            allowEscapeKey: false,
+                            showConfirmButton: false,
+                            didOpen: () => {
+                                Swal.showLoading();
+                            }
+                        });
+
+                        btn.disabled = true;
+
+                        // 構建 URL，包含選中的 ID、篩選和排序參數
+                        const params = new URLSearchParams();
+                        if (selectedIds.length > 0) {
+                            params.append('ids', selectedIds.join(','));
+                        }
+                        if (searchTerm) params.append('search', searchTerm);
+                        if (sortBy) params.append('sortBy', sortBy);
+                        if (sortOrder) params.append('sortOrder', sortOrder);
+                        if (publishedFrom) params.append('published_from', publishedFrom);
+                        if (publishedTo) params.append('published_to', publishedTo);
 
                 const url = '{{ route("dashboard.export") }}?' + params.toString();
 

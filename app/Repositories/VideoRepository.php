@@ -7,6 +7,7 @@ namespace App\Repositories;
 use App\Enums\AnalysisStatus;
 use App\Models\Video;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Carbon;
 
 class VideoRepository
 {
@@ -84,14 +85,54 @@ class VideoRepository
     public function getAllWithAnalysisQuery(
         string $searchTerm = '',
         string $sortBy = '',
-        string $sortOrder = ''
+        string $sortOrder = '',
+        string $publishedFrom = '',
+        string $publishedTo = ''
     ): \Illuminate\Database\Eloquent\Builder {
+        // 計算時間範圍：如果未指定，使用預設範圍（現在時間-14天 到 現在時間+7天）
+        // 預設範圍使用 UTC+8 時區計算，然後轉換為 UTC 進行查詢
+        if ('' === $publishedFrom || '' === $publishedTo) {
+            // 使用 UTC+8 時區計算預設範圍（因為用戶看到的是 UTC+8 時間）
+            $nowUtc8 = Carbon::now('Asia/Taipei');
+            $defaultFrom = $nowUtc8->copy()->subDays(14)->startOfDay();
+            $defaultTo = $nowUtc8->copy()->addDays(7)->endOfDay();
+            
+            // 如果用戶未指定，使用預設範圍（已經是 UTC+8 格式的日期字符串）
+            if ('' === $publishedFrom) {
+                $publishedFrom = $defaultFrom->format('Y-m-d');
+            }
+            if ('' === $publishedTo) {
+                $publishedTo = $defaultTo->format('Y-m-d');
+            }
+        }
+
         $query = Video::with('analysisResult')
             ->where('analysis_status', AnalysisStatus::COMPLETED);
+
+        // 應用時間範圍篩選
+        // 注意：用戶輸入的日期是 UTC+8 時間，需要轉換為 UTC 時間進行查詢
+        if ('' !== $publishedFrom) {
+            // 將 UTC+8 的日期轉換為 UTC 時間
+            // 例如：用戶輸入 2025-01-01 (UTC+8 的 00:00:00) = 2024-12-31 16:00:00 UTC
+            $utcFrom = Carbon::parse($publishedFrom, 'Asia/Taipei')
+                ->setTimezone('UTC')
+                ->startOfDay();
+            $query->where('published_at', '>=', $utcFrom);
+        }
+        if ('' !== $publishedTo) {
+            // 將 UTC+8 的日期轉換為 UTC 時間
+            // 例如：用戶輸入 2025-01-01 (UTC+8 的 23:59:59) = 2025-01-01 15:59:59 UTC
+            $utcTo = Carbon::parse($publishedTo, 'Asia/Taipei')
+                ->setTimezone('UTC')
+                ->endOfDay();
+            $query->where('published_at', '<=', $utcTo);
+        }
 
         if ('' !== $searchTerm) {
             $query->where(function ($q) use ($searchTerm) {
                 $q->where('title', 'like', '%' . $searchTerm . '%')
+                    ->orWhere('id', 'like', '%' . $searchTerm . '%')
+                    ->orWhere('source_id', 'like', '%' . $searchTerm . '%')
                     ->orWhere('shotlist_content', 'like', '%' . $searchTerm . '%')
                     ->orWhere('location', 'like', '%' . $searchTerm . '%');
             });
@@ -110,11 +151,10 @@ class VideoRepository
                       ->orderBy('analysis_results.importance_rating', $order)
                       ->orderBy('videos.published_at', 'desc') // Secondary sort
                       ->select('videos.*');
-            } else {
+                } else {
                 // Map sortBy to actual database columns
                 $dbColumn = match ($sortBy) {
                     'published_at' => 'published_at',
-                    'fetched_at' => 'fetched_at',
                     'source_id' => 'source_id',
                     default => 'published_at',
                 };
@@ -312,18 +352,25 @@ class VideoRepository
      *
      * @param string $sourceName
      * @param int $limit
+     * @param array<int> $excludeIds 要排除的 Video ID 列表（已檢查過的記錄）
      * @return Collection<int, Video>
      */
-    public function getPendingAnalysisVideos(string $sourceName, int $limit = 50): Collection
+    public function getPendingAnalysisVideos(string $sourceName, int $limit = 50, array $excludeIds = []): Collection
     {
-        return Video::where('source_name', strtoupper($sourceName))
+        $query = Video::where('source_name', strtoupper($sourceName))
             ->whereIn('sync_status', ['updated', 'synced'])
-            ->where(function ($query) {
+            ->where(function ($q) {
                 // 排除檔案過大的影片（超過 Gemini API 限制 300MB）
-                $query->whereNull('file_size_mb')
-                      ->orWhere('file_size_mb', '<=', 300);
-            })
-            ->orderBy('id', 'desc')
+                $q->whereNull('file_size_mb')
+                  ->orWhere('file_size_mb', '<=', 300);
+            });
+        
+        // 排除已檢查過的記錄
+        if (!empty($excludeIds)) {
+            $query->whereNotIn('id', $excludeIds);
+        }
+        
+        return $query->orderBy('published_at', 'desc')
             ->limit($limit)
             ->get();
     }

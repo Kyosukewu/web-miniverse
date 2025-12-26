@@ -21,12 +21,19 @@
                     <input type="text" id="keywordSearchInput" name="search" value="{{ $searchTerm }}" placeholder="ID, 標題, 摘要, 關鍵字...">
                 </div>
                 <div class="filter-group">
+                    <label for="publishedFromInput">發布時間（起）</label>
+                    <input type="date" id="publishedFromInput" name="published_from" value="{{ $publishedFrom ?? '' }}">
+                </div>
+                <div class="filter-group">
+                    <label for="publishedToInput">發布時間（迄）</label>
+                    <input type="date" id="publishedToInput" name="published_to" value="{{ $publishedTo ?? '' }}">
+                </div>
+                <div class="filter-group">
                     <label for="sortBySelect">排序依據</label>
                     <select id="sortBySelect" name="sortBy">
                         <option value="importance" {{ $sortBy === 'importance' ? 'selected' : '' }}>評分</option>
                         <option value="published_at" {{ $sortBy === 'published_at' ? 'selected' : '' }}>發布時間</option>
                         <option value="source_id" {{ $sortBy === 'source_id' ? 'selected' : '' }}>素材編號</option>
-                        <option value="fetched_at" {{ $sortBy === 'fetched_at' ? 'selected' : '' }}>擷取時間</option>
                     </select>
                 </div>
                 <div class="filter-group">

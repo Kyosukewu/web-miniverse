@@ -91,6 +91,8 @@ class AnalyzeFullCommand extends Command
         $progressBar->start();
 
         // 持續獲取記錄，直到處理了足夠的記錄或沒有更多記錄
+        $checkedVideoIds = []; // 記錄已檢查過的 Video ID，避免重複處理
+        
         while (true) {
             // 檢查是否已達到處理限制
             if ($limit > 0 && $processedCount >= $limit) {
@@ -98,8 +100,8 @@ class AnalyzeFullCommand extends Command
                 break;
             }
 
-            // 從資料庫獲取下一批記錄
-            $pendingVideos = $this->videoRepository->getPendingAnalysisVideos($sourceName, $batchSize);
+            // 從資料庫獲取下一批記錄（排除已檢查過的記錄）
+            $pendingVideos = $this->videoRepository->getPendingAnalysisVideos($sourceName, $batchSize, $checkedVideoIds);
             
             // 如果沒有更多記錄，停止
             if ($pendingVideos->isEmpty()) {
@@ -115,9 +117,13 @@ class AnalyzeFullCommand extends Command
                 }
 
                 $checkedCount++;
-            $videoId = $video->id;
-            $isTempFile = false;
-            $videoFilePath = null;
+                $videoId = $video->id;
+                
+                // 記錄已檢查的 Video ID，避免下次循環時重複獲取
+                $checkedVideoIds[] = $videoId;
+                
+                $isTempFile = false;
+                $videoFilePath = null;
 
             try {
                 // 從 GCS 獲取對應的 XML 和 MP4 檔案

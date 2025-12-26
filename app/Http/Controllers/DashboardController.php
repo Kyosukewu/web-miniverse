@@ -36,6 +36,8 @@ class DashboardController extends Controller
             'searchTerm' => $params['searchTerm'],
             'sortBy' => $params['sortBy'],
             'sortOrder' => $params['sortOrder'],
+            'publishedFrom' => $params['publishedFrom'],
+            'publishedTo' => $params['publishedTo'],
         ]);
     }
 

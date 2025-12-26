@@ -24,7 +24,7 @@ class DashboardService
      * Get query parameters from request.
      *
      * @param Request $request
-     * @return array{searchTerm: string, sortBy: string, sortOrder: string}
+     * @return array{searchTerm: string, sortBy: string, sortOrder: string, publishedFrom: string, publishedTo: string}
      */
     public function getQueryParameters(Request $request): array
     {
@@ -32,6 +32,8 @@ class DashboardService
             'searchTerm' => $request->query('search', ''),
             'sortBy' => $this->normalizeSortBy($request->query('sortBy', 'importance')),
             'sortOrder' => $this->normalizeSortOrder($request->query('sortOrder', 'desc')),
+            'publishedFrom' => $request->query('published_from', ''),
+            'publishedTo' => $request->query('published_to', ''),
         ];
     }
 
@@ -61,10 +63,15 @@ class DashboardService
             }
 
             // Get videos query builder
+            $publishedFrom = $params['publishedFrom'];
+            $publishedTo = $params['publishedTo'];
+            
             $query = $this->videoRepository->getAllWithAnalysisQuery(
                 $searchTerm,
                 $sortBy,
-                $sortOrder
+                $sortOrder,
+                $publishedFrom,
+                $publishedTo
             );
 
             // 设置查询超时（5 分钟）
