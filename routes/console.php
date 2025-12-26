@@ -41,7 +41,7 @@ $cleanupOldVideosEnabled = env('CLEANUP_OLD_VIDEOS_ENABLED', true);
 
 if ($schedulerEnabled) {
     // CNN 資源抓取：每 30 分鐘執行一次（優先執行，為後續分析提供資料）
-    Schedule::command('fetch:cnn --group-by=unique-id --keep-local --limit=500 --file-type=all')->everyThirtyMinutes()->onOneServer()->runInBackground();
+    Schedule::command('fetch:cnn --group-by=unique-id --limit=500 --file-type=all')->everyThirtyMinutes()->onOneServer()->runInBackground();
 
     // ========== Gemini API 配額限制說明 ==========
     // 根據 https://docs.cloud.google.com/gemini/docs/quotas?hl=zh-tw
