@@ -961,17 +961,28 @@ class AnalyzeFullCommand extends Command
             
             if ($fileSizeMB > $maxFileSizeMB) {
                 // 更新檔案大小和狀態為 file_too_large，之後不再處理此記錄
-                $this->videoRepository->update($videoId, [
-                    'file_size_mb' => $fileSizeMB,
-                    'analysis_status' => AnalysisStatus::FILE_TOO_LARGE->value,
-                ]);
-                $this->warn("\n⚠️  跳過（檔案過大，已標記為 file_too_large）: {$sourceId} (檔案大小: {$fileSizeMB}MB > {$maxFileSizeMB}MB)");
-                Log::info('[AnalyzeFullCommand] 檔案過大，已標記為 file_too_large', [
-                    'source_id' => $sourceId,
-                    'video_id' => $videoId,
-                    'file_size_mb' => $fileSizeMB,
-                    'mp4_file' => $mp4File,
-                ]);
+                try {
+                    $this->videoRepository->update($videoId, [
+                        'file_size_mb' => $fileSizeMB,
+                        'analysis_status' => AnalysisStatus::FILE_TOO_LARGE->value,
+                    ]);
+                    $this->warn("\n⚠️  跳過（檔案過大，已標記為 file_too_large）: {$sourceId} (檔案大小: {$fileSizeMB}MB > {$maxFileSizeMB}MB)");
+                    Log::info('[AnalyzeFullCommand] 檔案過大，已標記為 file_too_large', [
+                        'source_id' => $sourceId,
+                        'video_id' => $videoId,
+                        'file_size_mb' => $fileSizeMB,
+                        'mp4_file' => $mp4File,
+                    ]);
+                } catch (\Exception $updateException) {
+                    $this->error("\n✗ 更新狀態失敗: {$sourceId} - {$updateException->getMessage()}");
+                    Log::error('[AnalyzeFullCommand] 更新 file_too_large 狀態失敗', [
+                        'source_id' => $sourceId,
+                        'video_id' => $videoId,
+                        'file_size_mb' => $fileSizeMB,
+                        'error' => $updateException->getMessage(),
+                    ]);
+                    // 即使更新失敗，也跳過此記錄（因為檔案確實過大）
+                }
                 $skippedCount++;
                 $progressBar->setMessage((string)$checkedCount);
                 return;
@@ -982,7 +993,7 @@ class AnalyzeFullCommand extends Command
             $this->warn("\n⊘ 跳過（無法取得檔案大小）: {$sourceId} - {$e->getMessage()}");
             Log::warning('[AnalyzeFullCommand] 無法取得 GCS 檔案大小', [
                 'source_id' => $sourceId,
-                'mp4_file' => $mp4File,
+                'mp4_file' => $mp4File ?? null,
                 'error' => $e->getMessage(),
             ]);
             $skippedCount++;
