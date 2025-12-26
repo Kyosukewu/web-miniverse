@@ -50,6 +50,16 @@ class DashboardService
         $sortOrder = $params['sortOrder'];
 
         try {
+            // 限制每页最大数量，避免查询过大
+            $perPage = min($perPage, 100);
+            
+            // 获取当前页码，并限制最大页数（避免 offset 过大导致性能问题）
+            $currentPage = (int) $request->query('page', 1);
+            $maxPage = 100; // 限制最大页数，避免 offset 过大
+            if ($currentPage > $maxPage) {
+                $currentPage = $maxPage;
+            }
+
             // Get videos query builder
             $query = $this->videoRepository->getAllWithAnalysisQuery(
                 $searchTerm,
@@ -57,8 +67,15 @@ class DashboardService
                 $sortOrder
             );
 
-            // Use Laravel pagination
-            $videos = $query->paginate($perPage)->withQueryString();
+            // 设置查询超时（5 分钟）
+            try {
+                $query->getConnection()->statement('SET SESSION max_execution_time = 300000');
+            } catch (\Exception $timeoutException) {
+                // 如果设置超时失败，继续执行（某些 MySQL 版本可能不支持）
+            }
+
+            // Use Laravel pagination with page limit
+            $videos = $query->paginate($perPage, ['*'], 'page', $currentPage)->withQueryString();
 
             // Transform videos for display
             $displayData = $this->transformVideosForDisplay($videos->getCollection());
@@ -80,13 +97,22 @@ class DashboardService
 
             return $paginatedVideos;
         } catch (\Exception $e) {
-            Log::error('[DashboardService] 資料庫查詢失敗', [
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
-                'searchTerm' => $searchTerm,
-                'sortBy' => $sortBy,
-                'sortOrder' => $sortOrder,
-            ]);
+            // 优雅处理日志写入失败：如果日志写入失败，不要继续尝试写入
+            try {
+                Log::error('[DashboardService] 資料庫查詢失敗', [
+                    'error' => $e->getMessage(),
+                    'trace' => substr($e->getTraceAsString(), 0, 1000), // 限制 trace 长度
+                    'searchTerm' => $searchTerm,
+                    'sortBy' => $sortBy,
+                    'sortOrder' => $sortOrder,
+                ]);
+            } catch (\Exception $logException) {
+                // 日志写入失败时，静默处理，避免错误循环
+                // 可以输出到 stderr（如果可用）
+                if (function_exists('error_log')) {
+                    @error_log('[DashboardService] 資料庫查詢失敗（無法寫入日誌）: ' . $e->getMessage());
+                }
+            }
 
             return $this->createEmptyPaginator($request, $perPage);
         }

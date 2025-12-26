@@ -69,8 +69,10 @@ return [
             'driver' => 'daily',
             'path' => storage_path('logs/laravel.log'),
             'level' => env('LOG_LEVEL', 'debug'),
-            'days' => 14,
+            'days' => 3, // 减少保留天数从 14 天到 3 天，节省磁盘空间
             'replace_placeholders' => true,
+            // 当日志写入失败时，不抛出异常，避免错误循环
+            'permission' => 0664,
         ],
 
         'slack' => [
