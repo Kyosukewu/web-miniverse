@@ -285,7 +285,14 @@
                                 </p>
                                 <p>
                                     <span class="icon icon-version label">XML 檔案版本:</span> 
-                                    <span>{{ $video->xml_file_version ?? 0 }}</span>
+                                    @if(isset($videoData['xml_file_url']) && null !== $videoData['xml_file_url'])
+                                        <a href="{{ $videoData['xml_file_url'] }}" class="xml-download-btn" title="下載 XML 檔案" download>
+                                            <span class="btn-icon">⬇</span>
+                                            <span>{{ $video->xml_file_version ?? 0 }}</span>
+                                        </a>
+                                    @else
+                                        <span>{{ $video->xml_file_version ?? 0 }}</span>
+                                    @endif
                                 </p>
                                 <p>
                                     <span class="icon icon-version label">MP4 檔案版本:</span> 

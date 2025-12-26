@@ -490,6 +490,29 @@
         z-index: 10;
     }
 
+    .xml-download-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 4px 8px;
+        background-color: #007bff;
+        color: white;
+        text-decoration: none;
+        border-radius: 4px;
+        font-size: 0.85em;
+        transition: background-color 0.2s;
+    }
+
+    .xml-download-btn:hover {
+        background-color: #0056b3;
+        color: white;
+        text-decoration: none;
+    }
+
+    .xml-download-btn .btn-icon {
+        font-size: 0.9em;
+    }
+
     .video-download-btn {
         display: inline-flex;
         align-items: center;

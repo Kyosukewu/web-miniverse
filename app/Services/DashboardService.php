@@ -212,6 +212,12 @@ class DashboardService
         // Determine video URL based on source type and storage
         $videoUrl = $this->generateVideoUrl($video);
 
+        // Find XML file path if xml_file_version exists
+        $xmlFileUrl = null;
+        if (null !== $video->xml_file_version) {
+            $xmlFileUrl = $this->findXmlFileUrl($video);
+        }
+
         return [
             'source_name' => $video->source_name,
             'source_id' => $video->source_id,
@@ -224,6 +230,7 @@ class DashboardService
             'primary_subjects' => $primarySubjects,
             'flag_emoji' => DashboardHelper::getFlagForLocation($video->location),
             'video_url' => $videoUrl,
+            'xml_file_url' => $xmlFileUrl,
             'prompt_version' => $video->prompt_version,
             'restrictions' => $video->restrictions,
             'tran_restrictions' => $video->tran_restrictions,
@@ -281,6 +288,73 @@ class DashboardService
         // Fallback: Use relative URL path for local storage
         // storage_path('app/') maps to /storage/app/ URL path
         return '/storage/app/' . ltrim($nasPath, '/');
+    }
+
+    /**
+     * Find XML file URL based on source_id and xml_file_version.
+     *
+     * @param mixed $video
+     * @return string|null
+     */
+    private function findXmlFileUrl($video): ?string
+    {
+        try {
+            $sourceName = $video->source_name;
+            $sourceId = $video->source_id;
+            $xmlFileVersion = $video->xml_file_version;
+
+            if (null === $xmlFileVersion) {
+                return null;
+            }
+
+            // Build GCS base path
+            $gcsBasePath = strtolower($sourceName) . '/' . $sourceId;
+
+            // Get GCS disk
+            $gcsDisk = \Illuminate\Support\Facades\Storage::disk('gcs');
+
+            // Check if directory exists
+            if (!$gcsDisk->exists($gcsBasePath)) {
+                return null;
+            }
+
+            // Scan for XML files in the directory
+            $files = $gcsDisk->files($gcsBasePath);
+            
+            // If no files found, try recursive search
+            if (empty($files)) {
+                try {
+                    $files = $gcsDisk->allFiles($gcsBasePath);
+                } catch (\Exception $e) {
+                    Log::debug('[DashboardService] allFiles 不可用', [
+                        'source_id' => $sourceId,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            }
+
+            // Find XML file with matching version
+            foreach ($files as $file) {
+                $extension = strtolower(pathinfo($file, PATHINFO_EXTENSION));
+                if ('xml' === $extension) {
+                    $fileName = basename($file);
+                    $fileVersion = $this->storageService->extractFileVersion($fileName);
+                    
+                    if ($fileVersion === $xmlFileVersion) {
+                        // Found matching XML file, generate download URL
+                        return route('gcs.proxy', ['path' => $file]) . '?download';
+                    }
+                }
+            }
+
+            return null;
+        } catch (\Exception $e) {
+            Log::warning('[DashboardService] 查找 XML 文件失敗', [
+                'source_id' => $video->source_id ?? null,
+                'error' => $e->getMessage(),
+            ]);
+            return null;
+        }
     }
 
     /**
