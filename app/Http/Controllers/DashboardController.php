@@ -83,9 +83,18 @@ class DashboardController extends Controller
         $sourceName = $request->query('source', '');
         $sortBy = $request->query('sortBy', 'id');
         $sortOrder = $request->query('sortOrder', 'desc');
+        $publishedFrom = $request->query('published_from', '');
+        $publishedTo = $request->query('published_to', '');
         
         // 建立查詢
-        $query = $this->videoRepository->getAllVideosQuery($searchTerm, $sourceName, $sortBy, $sortOrder);
+        $query = $this->videoRepository->getAllVideosQuery(
+            $searchTerm,
+            $sourceName,
+            $sortBy,
+            $sortOrder,
+            $publishedFrom,
+            $publishedTo
+        );
         
         // 分頁
         $perPage = (int) $request->query('per_page', 50);
@@ -97,6 +106,8 @@ class DashboardController extends Controller
             'sourceName' => $sourceName,
             'sortBy' => $sortBy,
             'sortOrder' => $sortOrder,
+            'publishedFrom' => $publishedFrom,
+            'publishedTo' => $publishedTo,
         ]);
     }
 

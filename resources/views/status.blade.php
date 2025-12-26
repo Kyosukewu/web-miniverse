@@ -249,6 +249,14 @@
                         </select>
                     </div>
                     <div class="filter-group">
+                        <label for="published_from">發布時間（起）</label>
+                        <input type="date" id="published_from" name="published_from" value="{{ $publishedFrom }}">
+                    </div>
+                    <div class="filter-group">
+                        <label for="published_to">發布時間（迄）</label>
+                        <input type="date" id="published_to" name="published_to" value="{{ $publishedTo }}">
+                    </div>
+                    <div class="filter-group">
                         <label for="sortBy">排序依據</label>
                         <select id="sortBy" name="sortBy">
                             <option value="id" {{ $sortBy === 'id' ? 'selected' : '' }}>ID</option>

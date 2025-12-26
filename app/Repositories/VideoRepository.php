@@ -329,13 +329,17 @@ class VideoRepository
      * @param string $sourceName
      * @param string $sortBy
      * @param string $sortOrder
+     * @param string $publishedFrom
+     * @param string $publishedTo
      * @return \Illuminate\Database\Eloquent\Builder
      */
     public function getAllVideosQuery(
         string $searchTerm = '',
         string $sourceName = '',
         string $sortBy = 'id',
-        string $sortOrder = 'desc'
+        string $sortOrder = 'desc',
+        string $publishedFrom = '',
+        string $publishedTo = ''
     ): \Illuminate\Database\Eloquent\Builder {
         $query = Video::query();
 
@@ -351,6 +355,25 @@ class VideoRepository
         // 來源篩選
         if ('' !== $sourceName) {
             $query->where('source_name', strtoupper($sourceName));
+        }
+
+        // 發布時間範圍篩選
+        if ('' !== $publishedFrom) {
+            try {
+                $fromDate = new \DateTime($publishedFrom);
+                $query->where('published_at', '>=', $fromDate->format('Y-m-d 00:00:00'));
+            } catch (\Exception $e) {
+                // 忽略無效的日期格式
+            }
+        }
+
+        if ('' !== $publishedTo) {
+            try {
+                $toDate = new \DateTime($publishedTo);
+                $query->where('published_at', '<=', $toDate->format('Y-m-d 23:59:59'));
+            } catch (\Exception $e) {
+                // 忽略無效的日期格式
+            }
         }
 
         // 排序
