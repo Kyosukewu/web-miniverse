@@ -282,26 +282,46 @@ class FetchCnnCommand extends Command
                 $existingVideo = $this->videoRepository->getBySourceId($sourceName, $sourceId);
                 
                 if (null !== $existingVideo) {
-                    // 情況 1 & 2: 已存在記錄，需要比較版本
+                    // 情況 1 & 2: 已存在記錄，需要比較版本並更新版本資訊
                     $shouldUpdate = false;
                     $updateData = [
                         'nas_path' => $nasPath,
                     ];
                     
-                    // 比較 XML 版本
+                    // 獲取新版本資訊（如果文件存在）
                     $newXmlVersion = $resourceInfo['xml_version'] ?? null;
-                    $existingXmlVersion = $existingVideo->xml_file_version ?? 0;
-                    if (null !== $newXmlVersion && $newXmlVersion > $existingXmlVersion) {
-                        $updateData['xml_file_version'] = $newXmlVersion;
-                        $shouldUpdate = true;
+                    $newMp4Version = $resourceInfo['mp4_version'] ?? null;
+                    $existingXmlVersion = $existingVideo->xml_file_version ?? null;
+                    $existingMp4Version = $existingVideo->mp4_file_version ?? null;
+                    
+                    // 更新 XML 版本資訊（根據實際存在的文件）
+                    if ($resourceInfo['has_xml']) {
+                        // 如果有 XML 文件，更新版本（如果版本較大或之前為 null）
+                        if (null !== $newXmlVersion && (null === $existingXmlVersion || $newXmlVersion > $existingXmlVersion)) {
+                            $updateData['xml_file_version'] = $newXmlVersion;
+                            $shouldUpdate = true;
+                        }
+                    } else {
+                        // 如果沒有 XML 文件，明確設置為 null
+                        if (null !== $existingXmlVersion) {
+                            $updateData['xml_file_version'] = null;
+                            $shouldUpdate = true;
+                        }
                     }
                     
-                    // 比較 MP4 版本
-                    $newMp4Version = $resourceInfo['mp4_version'] ?? null;
-                    $existingMp4Version = $existingVideo->mp4_file_version ?? 0;
-                    if (null !== $newMp4Version && $newMp4Version > $existingMp4Version) {
-                        $updateData['mp4_file_version'] = $newMp4Version;
-                        $shouldUpdate = true;
+                    // 更新 MP4 版本資訊（根據實際存在的文件）
+                    if ($resourceInfo['has_mp4']) {
+                        // 如果有 MP4 文件，更新版本（如果版本較大或之前為 null）
+                        if (null !== $newMp4Version && (null === $existingMp4Version || $newMp4Version > $existingMp4Version)) {
+                            $updateData['mp4_file_version'] = $newMp4Version;
+                            $shouldUpdate = true;
+                        }
+                    } else {
+                        // 如果沒有 MP4 文件，明確設置為 null
+                        if (null !== $existingMp4Version) {
+                            $updateData['mp4_file_version'] = null;
+                            $shouldUpdate = true;
+                        }
                     }
                     
                     // 如果有最後修改時間，更新 fetched_at
@@ -310,15 +330,15 @@ class FetchCnnCommand extends Command
                     }
                     
                     if ($shouldUpdate) {
-                        // 情況 1: 版本較大，更新 sync_status 為 updated
+                        // 情況 1: 版本較大或文件狀態改變，更新 sync_status 為 updated
                         $updateData['sync_status'] = SyncStatus::UPDATED->value;
                         $this->videoRepository->update($existingVideo->id, $updateData);
                         $updatedCount++;
-                        Log::info('[FetchCnnCommand] 已更新記錄（版本較大）', [
+                        Log::info('[FetchCnnCommand] 已更新記錄', [
                             'source_id' => $sourceId,
                             'video_id' => $existingVideo->id,
-                            'xml_version' => ['old' => $existingXmlVersion, 'new' => $newXmlVersion],
-                            'mp4_version' => ['old' => $existingMp4Version, 'new' => $newMp4Version],
+                            'xml_version' => ['old' => $existingXmlVersion, 'new' => $newXmlVersion, 'has_file' => $resourceInfo['has_xml']],
+                            'mp4_version' => ['old' => $existingMp4Version, 'new' => $newMp4Version, 'has_file' => $resourceInfo['has_mp4']],
                             'sync_status' => SyncStatus::UPDATED->value,
                         ]);
                     } else {
@@ -327,8 +347,8 @@ class FetchCnnCommand extends Command
                         Log::debug('[FetchCnnCommand] 跳過更新（版本未變或較小）', [
                             'source_id' => $sourceId,
                             'video_id' => $existingVideo->id,
-                            'xml_version' => ['db' => $existingXmlVersion, 'file' => $newXmlVersion],
-                            'mp4_version' => ['db' => $existingMp4Version, 'file' => $newMp4Version],
+                            'xml_version' => ['db' => $existingXmlVersion, 'file' => $newXmlVersion, 'has_file' => $resourceInfo['has_xml']],
+                            'mp4_version' => ['db' => $existingMp4Version, 'file' => $newMp4Version, 'has_file' => $resourceInfo['has_mp4']],
                         ]);
                     }
                 } else {
@@ -341,23 +361,20 @@ class FetchCnnCommand extends Command
                         'fetched_at' => null !== $resourceInfo['last_modified'] 
                             ? date('Y-m-d H:i:s', $resourceInfo['last_modified'])
                             : date('Y-m-d H:i:s'),
+                        // 明確設置版本資訊（如果文件不存在，設置為 null）
+                        'xml_file_version' => $resourceInfo['xml_version'] ?? null,
+                        'mp4_file_version' => $resourceInfo['mp4_version'] ?? null,
                     ];
-                    
-                    // 如果有版本資訊，一併記錄
-                    if (null !== $resourceInfo['xml_version']) {
-                        $createData['xml_file_version'] = $resourceInfo['xml_version'];
-                    }
-                    if (null !== $resourceInfo['mp4_version']) {
-                        $createData['mp4_file_version'] = $resourceInfo['mp4_version'];
-                    }
                     
                     $videoId = $this->videoRepository->findOrCreate($createData);
                     $createdCount++;
                     Log::info('[FetchCnnCommand] 已建立新記錄', [
                         'source_id' => $sourceId,
                         'video_id' => $videoId,
-                        'xml_version' => $resourceInfo['xml_version'],
-                        'mp4_version' => $resourceInfo['mp4_version'],
+                        'xml_version' => $resourceInfo['xml_version'] ?? null,
+                        'mp4_version' => $resourceInfo['mp4_version'] ?? null,
+                        'has_xml' => $resourceInfo['has_xml'],
+                        'has_mp4' => $resourceInfo['has_mp4'],
                         'sync_status' => SyncStatus::UPDATED->value,
                     ]);
                 }

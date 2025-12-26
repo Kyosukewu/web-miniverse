@@ -73,43 +73,48 @@ class AnalyzeFullCommand extends Command
         $this->info("模式：完整分析（文本 + 影片一次性發送）");
         $this->info("📊 從資料庫獲取待處理記錄（sync_status = 'updated' 或 'synced'）");
 
-        // 從資料庫獲取待處理的記錄
-        // 如果設定了 limit，獲取更多記錄以確保能找到足夠的可處理記錄（因為很多可能被跳過）
-        $fetchLimit = $limit > 0 ? max($limit * 3, 150) : 100; // 獲取 limit 的 3 倍或至少 150 個
-        $pendingVideos = $this->videoRepository->getPendingAnalysisVideos($sourceName, $fetchLimit);
-
-        if ($pendingVideos->isEmpty()) {
-            $this->warn("未找到任何待處理的記錄（sync_status = 'updated' 或 'synced'）");
-            return Command::SUCCESS;
-        }
-
-        $this->info("找到 " . $pendingVideos->count() . " 個待處理的記錄");
-
-        if ($limit > 0) {
-            $this->info("將處理直到成功處理 {$limit} 個記錄為止（可能會檢查更多記錄）");
-        }
-
         // 處理待處理的記錄
         $processedCount = 0;
         $skippedCount = 0;
         $errorCount = 0;
         $checkedCount = 0;
+        $batchSize = 50; // 每次從資料庫獲取的記錄數
 
-        // 使用總記錄數量建立進度條
-        // 進度條顯示"已檢查"的進度，但實際處理數量由 processedCount 控制
-        $progressBar = $this->output->createProgressBar($pendingVideos->count());
-        $progressBar->setFormat(' %current%/%max% [%bar%] %percent:3s%% 已檢查: %current% | 已處理: %message%');
+        if ($limit > 0) {
+            $this->info("將處理直到成功處理 {$limit} 個記錄為止（會持續查找更多記錄）");
+        }
+
+        // 建立進度條（使用動態最大值，基於已處理數量）
+        $progressBar = $this->output->createProgressBar($limit > 0 ? $limit : 100);
+        $progressBar->setFormat(' %current%/%max% [%bar%] %percent:3s%% 已處理: %current% | 已檢查: %message%');
         $progressBar->setMessage('0');
         $progressBar->start();
 
-        foreach ($pendingVideos as $video) {
-            // 檢查是否已達到處理限制（只計算成功處理的）
+        // 持續獲取記錄，直到處理了足夠的記錄或沒有更多記錄
+        while (true) {
+            // 檢查是否已達到處理限制
             if ($limit > 0 && $processedCount >= $limit) {
                 $this->line("\n已達到處理限制 ({$limit} 個記錄)，停止處理");
                 break;
             }
 
-            $checkedCount++;
+            // 從資料庫獲取下一批記錄
+            $pendingVideos = $this->videoRepository->getPendingAnalysisVideos($sourceName, $batchSize);
+            
+            // 如果沒有更多記錄，停止
+            if ($pendingVideos->isEmpty()) {
+                $this->line("\n沒有更多待處理的記錄");
+                break;
+            }
+
+            // 處理這批記錄
+            foreach ($pendingVideos as $video) {
+                // 檢查是否已達到處理限制（只計算成功處理的）
+                if ($limit > 0 && $processedCount >= $limit) {
+                    break 2; // 跳出兩層循環
+                }
+
+                $checkedCount++;
             $videoId = $video->id;
             $isTempFile = false;
             $videoFilePath = null;
@@ -132,8 +137,7 @@ class AnalyzeFullCommand extends Command
                         'gcs_path' => $gcsBasePath,
                     ]);
                     $skippedCount++;
-                    $progressBar->setMessage((string)$processedCount);
-                    $progressBar->advance();
+                    $progressBar->setMessage((string)$checkedCount);
                     continue;
                 }
                 
@@ -209,8 +213,7 @@ class AnalyzeFullCommand extends Command
                         'file_list' => array_slice($files, 0, 5),
                     ]);
                     $skippedCount++;
-                    $progressBar->setMessage((string)$processedCount);
-                    $progressBar->advance();
+                    $progressBar->setMessage((string)$checkedCount);
                     continue;
                 }
                 
@@ -224,8 +227,7 @@ class AnalyzeFullCommand extends Command
                         'xml_file' => $xmlFile,
                     ]);
                     $skippedCount++;
-                    $progressBar->setMessage((string)$processedCount);
-                    $progressBar->advance();
+                    $progressBar->setMessage((string)$checkedCount);
                     continue;
                 }
                 
@@ -235,8 +237,7 @@ class AnalyzeFullCommand extends Command
                 if (null === $fileContent) {
                     $this->warn("\n無法讀取 XML 檔案: {$xmlFile}");
                     $errorCount++;
-                    $progressBar->setMessage((string)$processedCount);
-                    $progressBar->advance();
+                    $progressBar->setMessage((string)$checkedCount);
                     continue;
                 }
 
@@ -246,8 +247,7 @@ class AnalyzeFullCommand extends Command
                 if ('' === trim($textContent)) {
                     $this->warn("\nXML 檔案內容為空: {$xmlFile}");
                     $errorCount++;
-                    $progressBar->setMessage((string)$processedCount);
-                    $progressBar->advance();
+                    $progressBar->setMessage((string)$checkedCount);
                     continue;
                 }
 
@@ -262,7 +262,7 @@ class AnalyzeFullCommand extends Command
                     if ($fileSizeMB > $maxFileSizeMB) {
                         $this->warn("\n⚠️  跳過（檔案過大）: {$sourceId} (檔案大小: {$fileSizeMB}MB > {$maxFileSizeMB}MB)");
                         $skippedCount++;
-                        $progressBar->advance();
+                        $progressBar->setMessage((string)$checkedCount);
                         continue;
                     }
                     
@@ -275,8 +275,7 @@ class AnalyzeFullCommand extends Command
                         'error' => $e->getMessage(),
                     ]);
                     $skippedCount++;
-                    $progressBar->setMessage((string)$processedCount);
-                    $progressBar->advance();
+                    $progressBar->setMessage((string)$checkedCount);
                     continue;
                 }
 
@@ -354,7 +353,8 @@ class AnalyzeFullCommand extends Command
 
                 $this->line("\n✓ 完成完整分析: {$sourceId}");
                 $processedCount++;
-                $progressBar->setMessage((string)$processedCount);
+                $progressBar->setMessage((string)$checkedCount);
+                $progressBar->setProgress($processedCount);
             } catch (\Exception $e) {
                 $errorCount++;
                 
@@ -407,8 +407,12 @@ class AnalyzeFullCommand extends Command
                 $this->error("\n✗ 分析失敗: {$errorSourceId} - {$e->getMessage()}");
             }
 
-            $progressBar->setMessage((string)$processedCount);
-            $progressBar->advance();
+            // 更新進度條消息（顯示已檢查數量）
+            $progressBar->setMessage((string)$checkedCount);
+            // 進度條的 current 基於已處理數量，只在成功處理時更新
+            // 跳過和錯誤時不更新進度條的 current
+            }
+            // 這批記錄處理完畢，繼續獲取下一批
         }
 
         $progressBar->finish();

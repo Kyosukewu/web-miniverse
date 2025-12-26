@@ -307,8 +307,8 @@
                                     <td>{{ $video->source_name }}</td>
                                     <td class="text-truncate" title="{{ $video->source_id }}">{{ $video->source_id }}</td>
                                     <td class="text-truncate" title="{{ $video->title ?? 'N/A' }}">{{ $video->title ?? 'N/A' }}</td>
-                                    <td class="text-center">{{ $video->xml_file_version ?? '-' }}</td>
-                                    <td class="text-center">{{ $video->mp4_file_version ?? '-' }}</td>
+                                    <td class="text-center">{{ $video->xml_file_version !== null ? $video->xml_file_version : 'N/A' }}</td>
+                                    <td class="text-center">{{ $video->mp4_file_version !== null ? $video->mp4_file_version : 'N/A' }}</td>
                                     <td>{{ \App\Helpers\DashboardHelper::formatDateTimeToUtc8($video->fetched_at) }}</td>
                                     <td>{{ \App\Helpers\DashboardHelper::formatDateTimeToUtc8($video->published_at) }}</td>
                                     <td>
