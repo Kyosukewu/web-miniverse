@@ -394,7 +394,8 @@ class VideoRepository
         string $sortBy = 'id',
         string $sortOrder = 'desc',
         string $publishedFrom = '',
-        string $publishedTo = ''
+        string $publishedTo = '',
+        bool $hideMissingFiles = false
     ): \Illuminate\Database\Eloquent\Builder {
         $query = Video::query();
 
@@ -429,6 +430,12 @@ class VideoRepository
             } catch (\Exception $e) {
                 // 忽略無效的日期格式
             }
+        }
+
+        // 隱藏缺少 XML 或 MP4 檔案的記錄
+        if ($hideMissingFiles) {
+            $query->whereNotNull('xml_file_version')
+                  ->whereNotNull('mp4_file_version');
         }
 
         // 排序

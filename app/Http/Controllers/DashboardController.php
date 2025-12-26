@@ -87,6 +87,7 @@ class DashboardController extends Controller
         $sortOrder = $request->query('sortOrder', 'desc');
         $publishedFrom = $request->query('published_from', '');
         $publishedTo = $request->query('published_to', '');
+        $hideMissingFiles = $request->query('hide_missing_files', false) === '1' || $request->query('hide_missing_files', false) === 'on';
         
         // 建立查詢
         $query = $this->videoRepository->getAllVideosQuery(
@@ -95,7 +96,8 @@ class DashboardController extends Controller
             $sortBy,
             $sortOrder,
             $publishedFrom,
-            $publishedTo
+            $publishedTo,
+            $hideMissingFiles
         );
         
         // 分頁
@@ -110,6 +112,7 @@ class DashboardController extends Controller
             'sortOrder' => $sortOrder,
             'publishedFrom' => $publishedFrom,
             'publishedTo' => $publishedTo,
+            'hideMissingFiles' => $hideMissingFiles,
         ]);
     }
 

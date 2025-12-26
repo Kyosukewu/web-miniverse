@@ -72,6 +72,22 @@
             font-size: 14px;
         }
 
+        .filter-group input[type="checkbox"] {
+            width: auto;
+            margin: 0;
+            padding: 0;
+            cursor: pointer;
+        }
+
+        .filter-group label[for="hide_missing_files"],
+        .filter-group label:has(input[type="checkbox"]) {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            padding-top: 0;
+        }
+
         .filter-buttons {
             display: flex;
             gap: 10px;
@@ -255,6 +271,12 @@
                     <div class="filter-group">
                         <label for="published_to">發布時間（迄）</label>
                         <input type="date" id="published_to" name="published_to" value="{{ $publishedTo }}">
+                    </div>
+                    <div class="filter-group">
+                        <label for="hide_missing_files">
+                            <input type="checkbox" id="hide_missing_files" name="hide_missing_files" value="1" {{ $hideMissingFiles ? 'checked' : '' }}>
+                            <span>隱藏缺少 XML 或 MP4 檔案的資料</span>
+                        </label>
                     </div>
                     <div class="filter-group">
                         <label for="sortBy">排序依據</label>
