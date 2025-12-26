@@ -54,7 +54,7 @@ return [
     'channels' => [
         'stack' => [
             'driver' => 'stack',
-            'channels' => ['single'],
+            'channels' => ['daily'], // 改用 daily 以自動輪轉日誌
             'ignore_exceptions' => false,
         ],
 

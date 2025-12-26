@@ -145,4 +145,11 @@ if ($schedulerEnabled) {
             ->onOneServer()
             ->runInBackground();
     }
+
+    // 清理舊日誌檔案（每天凌晨 3 點執行，保留 7 天內的日誌，單檔最大 100MB）
+    // 這可以防止日誌檔案佔用過多磁碟空間
+    Schedule::command('cleanup:logs --days=7 --max-size=100')
+        ->dailyAt('03:00')
+        ->onOneServer()
+        ->runInBackground();
 }
