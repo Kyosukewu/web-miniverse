@@ -87,15 +87,11 @@ class VideoAnalysisExport implements FromCollection, WithChunkReading, WithColum
             $formattedDuration = sprintf('%02d:%02d', $minutes, $seconds);
         }
 
-        // 格式化發布時間
-        $publishedAt = $video->published_at 
-            ? $video->published_at->format('Y-m-d H:i:s') 
-            : 'N/A';
+        // 格式化發布時間（轉換為 UTC+8）
+        $publishedAt = \App\Helpers\DashboardHelper::formatDateTimeToUtc8($video->published_at);
 
-        // 格式化擷取時間
-        $fetchedAt = $video->fetched_at 
-            ? $video->fetched_at->format('Y-m-d H:i:s') 
-            : 'N/A';
+        // 格式化擷取時間（轉換為 UTC+8）
+        $fetchedAt = \App\Helpers\DashboardHelper::formatDateTimeToUtc8($video->fetched_at);
 
         // 處理分類/主題
         $subjects = [];

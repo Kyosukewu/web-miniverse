@@ -309,8 +309,8 @@
                                     <td class="text-truncate" title="{{ $video->title ?? 'N/A' }}">{{ $video->title ?? 'N/A' }}</td>
                                     <td class="text-center">{{ $video->xml_file_version ?? '-' }}</td>
                                     <td class="text-center">{{ $video->mp4_file_version ?? '-' }}</td>
-                                    <td>{{ $video->fetched_at ? $video->fetched_at->format('Y-m-d H:i:s') : 'N/A' }}</td>
-                                    <td>{{ $video->published_at ? $video->published_at->format('Y-m-d H:i:s') : 'N/A' }}</td>
+                                    <td>{{ \App\Helpers\DashboardHelper::formatDateTimeToUtc8($video->fetched_at) }}</td>
+                                    <td>{{ \App\Helpers\DashboardHelper::formatDateTimeToUtc8($video->published_at) }}</td>
                                     <td>
                                         @php
                                             $analysisStatus = $video->analysis_status->value ?? 'pending';

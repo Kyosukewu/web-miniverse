@@ -140,11 +140,7 @@
 
                             <div class="card-identity-meta">
                                 <p><span class="icon icon-id label">素材編號:</span> {{ $videoData['combined_source_id'] }} (DB ID: {{ $video->id }})</p>
-                                @if($video->published_at)
-                                    <p><span class="icon icon-date label">發布時間:</span> {{ $video->published_at->format('Y-m-d H:i:s') }}</p>
-                                @else
-                                    <p><span class="icon icon-date label">發布時間:</span> <span class="no-data">N/A</span></p>
-                                @endif
+                                <p><span class="icon icon-date label">發布時間:</span> {{ \App\Helpers\DashboardHelper::formatDateTimeToUtc8($video->published_at) }}</p>
                                 <p><span class="icon icon-duration label">影片長度:</span> 
                                     @if($video->duration_secs)
                                         {{ sprintf('%02d:%02d', $videoData['formatted_duration_minutes'], $videoData['formatted_duration_seconds']) }}

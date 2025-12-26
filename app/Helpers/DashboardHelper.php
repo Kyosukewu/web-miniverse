@@ -61,5 +61,44 @@ class DashboardHelper
         return '🏳️';
     }
 
+    /**
+     * 將 UTC 時間轉換為 UTC+8 (Asia/Taipei) 並格式化顯示
+     *
+     * @param \DateTime|\Illuminate\Support\Carbon|null $dateTime
+     * @param string $format 格式化字串，預設為 'Y-m-d H:i:s'
+     * @return string
+     */
+    public static function formatDateTimeToUtc8($dateTime, string $format = 'Y-m-d H:i:s'): string
+    {
+        if (null === $dateTime) {
+            return 'N/A';
+        }
+
+        try {
+            // 如果已經是 Carbon 實例，直接使用
+            if ($dateTime instanceof \Illuminate\Support\Carbon) {
+                return $dateTime->setTimezone('Asia/Taipei')->format($format);
+            }
+
+            // 如果是 DateTime 實例，轉換為 Carbon
+            if ($dateTime instanceof \DateTime) {
+                return \Illuminate\Support\Carbon::instance($dateTime)
+                    ->setTimezone('Asia/Taipei')
+                    ->format($format);
+            }
+
+            // 如果是字串，嘗試解析
+            if (is_string($dateTime)) {
+                return \Illuminate\Support\Carbon::parse($dateTime, 'UTC')
+                    ->setTimezone('Asia/Taipei')
+                    ->format($format);
+            }
+
+            return 'N/A';
+        } catch (\Exception $e) {
+            return 'N/A';
+        }
+    }
+
 }
 
