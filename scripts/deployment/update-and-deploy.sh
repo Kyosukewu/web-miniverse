@@ -65,8 +65,38 @@ echo -e "${YELLOW}步驟 3: 從 GitHub 拉取最新代碼...${NC}"
 echo "執行: git fetch origin"
 git fetch origin
 
+# 在 reset 之前，先處理可能被占用的文件（如 Docker 掛載的配置文件）
+echo "檢查可能被占用的文件..."
+if [ -f "docker/mysql/my.cnf" ]; then
+    # 嘗試停止可能使用該文件的容器
+    if command -v docker &> /dev/null; then
+        echo "停止可能使用配置文件的容器..."
+        docker compose stop db 2>/dev/null || true
+        sleep 1
+    fi
+    
+    # 如果文件仍然無法刪除，嘗試修改權限
+    if [ -w "docker/mysql/my.cnf" ]; then
+        chmod 644 "docker/mysql/my.cnf" 2>/dev/null || true
+    fi
+fi
+
 echo "執行: git reset --hard origin/${CURRENT_BRANCH}"
-git reset --hard origin/${CURRENT_BRANCH}
+# 使用更安全的方式重置：先清理，再重置
+git clean -fd 2>/dev/null || true
+git reset --hard origin/${CURRENT_BRANCH} || {
+    echo -e "${YELLOW}⚠️  git reset 遇到問題，嘗試修復...${NC}"
+    # 如果 reset 失敗，嘗試手動處理
+    git checkout HEAD -- docker/mysql/my.cnf 2>/dev/null || true
+    git reset --hard origin/${CURRENT_BRANCH} || {
+        echo -e "${RED}❌ 無法重置到遠端版本${NC}"
+        echo -e "${YELLOW}請手動執行以下命令修復：${NC}"
+        echo "  docker compose stop db"
+        echo "  rm -f docker/mysql/my.cnf"
+        echo "  git reset --hard origin/${CURRENT_BRANCH}"
+        exit 1
+    }
+}
 echo -e "${GREEN}✓ 代碼已更新到最新版本${NC}"
 echo ""
 
