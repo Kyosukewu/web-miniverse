@@ -87,16 +87,6 @@ services:
     networks:
       - web-miniverse-network
 
-  # Redis（如果需要用於快取或 Queue）
-  redis:
-    image: redis:7-alpine
-    container_name: web-miniverse-redis
-    restart: unless-stopped
-    ports:
-      - "6379:6379"
-    networks:
-      - web-miniverse-network
-
 volumes:
   db_data:
     driver: local
