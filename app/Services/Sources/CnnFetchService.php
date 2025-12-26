@@ -494,14 +494,31 @@ class CnnFetchService implements FetchServiceInterface
             $gcsDisk->put($targetPath, $content);
             unset($content); // Free memory immediately
 
-            // 驗證檔案是否真的上傳成功
-            if (!$gcsDisk->exists($targetPath)) {
+            // 驗證檔案是否真的上傳成功（GCS 有最終一致性，需要重試）
+            $maxRetries = 5;
+            $retryDelay = 1; // 秒
+            $verified = false;
+            
+            for ($i = 0; $i < $maxRetries; $i++) {
+                if ($gcsDisk->exists($targetPath)) {
+                    $verified = true;
+                    break;
+                }
+                
+                // 如果不是最後一次重試，等待後再試
+                if ($i < $maxRetries - 1) {
+                    sleep($retryDelay);
+                    $retryDelay *= 2; // 指數退避：1s, 2s, 4s, 8s
+                }
+            }
+            
+            if (!$verified) {
                 $errorDetail = [
                     'file_name' => $file['name'],
                     'file_path' => $file['path'],
                     'unique_id' => $uniqueId,
                     'error_type' => 'upload_verification_failed',
-                    'error_message' => '檔案上傳後驗證失敗，GCS 中不存在',
+                    'error_message' => '檔案上傳後驗證失敗，GCS 中不存在（已重試 ' . $maxRetries . ' 次）',
                     'timestamp' => date('Y-m-d H:i:s'),
                     'file_size' => $file['size'] ?? null,
                     'gcs_target_path' => $targetPath,
@@ -511,6 +528,7 @@ class CnnFetchService implements FetchServiceInterface
                     'local_path' => $file['path'],
                     'gcs_path' => $targetPath,
                     'unique_id' => $uniqueId,
+                    'retries' => $maxRetries,
                 ]);
                 
                 return [
@@ -684,13 +702,26 @@ class CnnFetchService implements FetchServiceInterface
                 if ($file->isFile()) {
                     $extension = strtolower($file->getExtension());
                     if (in_array($extension, ['xml', 'mp4', 'jpg', 'jpeg'], true)) {
+                        $filePath = $file->getPathname();
+                        $fileSize = $file->getSize();
+                        $modifiedTime = $file->getMTime();
+                        
+                        // 檢查檔案是否完整寫入（避免處理正在寫入的檔案）
+                        if (!$this->isFileComplete($filePath, $fileSize, $modifiedTime)) {
+                            Log::debug('[CnnFetchService] 跳過未完成寫入的檔案', [
+                                'file_path' => $filePath,
+                                'file_size' => $fileSize,
+                            ]);
+                            continue;
+                        }
+                        
                         yield [
-                            'path' => $file->getPathname(),
-                            'relative_path' => str_replace($this->sourcePath . '/', '', $file->getPathname()),
+                            'path' => $filePath,
+                            'relative_path' => str_replace($this->sourcePath . '/', '', $filePath),
                             'name' => $file->getFilename(),
                             'extension' => $extension,
-                            'size' => $file->getSize(),
-                            'modified' => $file->getMTime(),
+                            'size' => $fileSize,
+                            'modified' => $modifiedTime,
                         ];
                     }
                 }
@@ -1040,6 +1071,61 @@ class CnnFetchService implements FetchServiceInterface
         }
 
         return $result;
+    }
+
+    /**
+     * Check if file is completely written (not being written to).
+     * 
+     * @param string $filePath
+     * @param int $currentSize
+     * @param int $modifiedTime
+     * @return bool
+     */
+    private function isFileComplete(string $filePath, int $currentSize, int $modifiedTime): bool
+    {
+        // 如果檔案大小為 0，可能還在寫入
+        if ($currentSize === 0) {
+            return false;
+        }
+        
+        // 檢查檔案是否在最近 5 秒內被修改（可能還在寫入）
+        $timeSinceModified = time() - $modifiedTime;
+        if ($timeSinceModified < 5) {
+            // 等待 1 秒後再次檢查檔案大小是否穩定
+            sleep(1);
+            clearstatcache(true, $filePath);
+            
+            if (!file_exists($filePath)) {
+                return false;
+            }
+            
+            $newSize = filesize($filePath);
+            $newModifiedTime = filemtime($filePath);
+            
+            // 如果檔案大小或修改時間改變，表示還在寫入
+            if ($newSize !== $currentSize || $newModifiedTime !== $modifiedTime) {
+                return false;
+            }
+        }
+        
+        // 檢查檔案是否被其他進程鎖定（嘗試以讀取模式打開）
+        $handle = @fopen($filePath, 'rb');
+        if (false === $handle) {
+            // 無法打開檔案，可能被鎖定
+            return false;
+        }
+        
+        // 嘗試獲取共享鎖（非阻塞）
+        if (!flock($handle, LOCK_SH | LOCK_NB)) {
+            fclose($handle);
+            // 檔案被鎖定，可能正在寫入
+            return false;
+        }
+        
+        flock($handle, LOCK_UN);
+        fclose($handle);
+        
+        return true;
     }
 
     /**
