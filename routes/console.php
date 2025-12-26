@@ -146,10 +146,36 @@ if ($schedulerEnabled) {
             ->runInBackground();
     }
 
-    // 清理舊日誌檔案（每天凌晨 3 點執行，保留 7 天內的日誌，單檔最大 100MB）
-    // 這可以防止日誌檔案佔用過多磁碟空間
-    Schedule::command('cleanup:logs --days=7 --max-size=100')
+    // 清理舊日誌檔案（每天凌晨 3 點執行，保留 3 天內的日誌，單檔最大 50MB）
+    // 優化：減少保留天數和單檔大小，更積極地清理日誌，防止磁碟空間不足
+    Schedule::command('cleanup:logs --days=3 --max-size=50')
         ->dailyAt('03:00')
         ->onOneServer()
         ->runInBackground();
+    
+    // 緊急清理檢查（每 6 小時執行一次，當磁碟使用率超過 85% 時自動清理）
+    // 這是一個預防性措施，在空間不足前就開始清理
+    Schedule::call(function () {
+        $basePath = storage_path();
+        $freeSpace = disk_free_space($basePath);
+        $totalSpace = disk_total_space($basePath);
+        
+        if ($freeSpace !== false && $totalSpace !== false) {
+            $usedSpace = $totalSpace - $freeSpace;
+            $usagePercent = ($usedSpace / $totalSpace) * 100;
+            
+            // 如果使用率超過 85%，執行緊急清理
+            if ($usagePercent > 85) {
+                Log::warning('[Scheduler] 磁碟使用率過高，執行緊急清理', [
+                    'usage_percent' => round($usagePercent, 1),
+                    'free_space_mb' => round($freeSpace / 1024 / 1024, 2),
+                ]);
+                
+                Artisan::call('cleanup:emergency', [
+                    '--force' => true,
+                    '--keep-hours' => 0, // 清理所有臨時檔案
+                ]);
+            }
+        }
+    })->everySixHours()->name('emergency-cleanup-check')->onOneServer();
 }

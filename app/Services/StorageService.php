@@ -707,13 +707,21 @@ class StorageService
             if ($availableSpace === false || $availableSpace < $requiredSpace) {
                 $availableSpaceMB = $availableSpace ? round($availableSpace / 1024 / 1024, 2) : 0;
                 $requiredSpaceMB = round($requiredSpace / 1024 / 1024, 2);
-                Log::error('[StorageService] 磁碟空間不足，無法下載檔案', [
-                    'file_path' => $filePath,
-                    'file_size_mb' => $fileSizeMB,
-                    'available_space_mb' => $availableSpaceMB,
-                    'required_space_mb' => $requiredSpaceMB,
-                ]);
-                throw new \Exception("磁碟空間不足：需要 {$requiredSpaceMB}MB，但只有 {$availableSpaceMB}MB 可用");
+                
+                // 嘗試緊急清理臨時檔案
+                $this->emergencyCleanupTempFiles($tempDir);
+                
+                // 重新檢查空間
+                $availableSpace = disk_free_space($tempDir);
+                if ($availableSpace === false || $availableSpace < $requiredSpace) {
+                    Log::error('[StorageService] 磁碟空間不足，無法下載檔案', [
+                        'file_path' => $filePath,
+                        'file_size_mb' => $fileSizeMB,
+                        'available_space_mb' => $availableSpaceMB,
+                        'required_space_mb' => $requiredSpaceMB,
+                    ]);
+                    throw new \Exception("磁碟空間不足：需要 {$requiredSpaceMB}MB，但只有 {$availableSpaceMB}MB 可用。請執行 php artisan cleanup:emergency 清理空間");
+                }
             }
 
             // Generate temp file path
@@ -786,6 +794,58 @@ class StorageService
             ]);
             return null;
         }
+    }
+
+    /**
+     * 緊急清理臨時檔案（當磁碟空間不足時自動調用）
+     * 
+     * @param string $tempDir 臨時目錄路徑
+     * @return int 釋放的空間（位元組）
+     */
+    private function emergencyCleanupTempFiles(string $tempDir): int
+    {
+        if (!is_dir($tempDir)) {
+            return 0;
+        }
+
+        $deletedSize = 0;
+        $files = glob($tempDir . '/*');
+        
+        // 按檔案修改時間排序，優先刪除最舊的檔案
+        $filesWithTime = [];
+        foreach ($files as $file) {
+            if (is_file($file)) {
+                $filesWithTime[] = [
+                    'path' => $file,
+                    'mtime' => filemtime($file),
+                    'size' => filesize($file),
+                ];
+            }
+        }
+        
+        // 按修改時間升序排序（最舊的優先）
+        usort($filesWithTime, function ($a, $b) {
+            return $a['mtime'] <=> $b['mtime'];
+        });
+        
+        // 刪除超過 30 分鐘的檔案
+        $cutoffTime = time() - 1800; // 30 分鐘
+        foreach ($filesWithTime as $fileInfo) {
+            if ($fileInfo['mtime'] < $cutoffTime) {
+                if (@unlink($fileInfo['path'])) {
+                    $deletedSize += $fileInfo['size'];
+                }
+            }
+        }
+        
+        if ($deletedSize > 0) {
+            Log::warning('[StorageService] 緊急清理臨時檔案', [
+                'temp_dir' => $tempDir,
+                'freed_space_mb' => round($deletedSize / 1024 / 1024, 2),
+            ]);
+        }
+        
+        return $deletedSize;
     }
 
     /**
