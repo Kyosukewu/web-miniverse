@@ -103,13 +103,10 @@ class CleanupLogsCommand extends Command
                 if ($dryRun) {
                     $this->line("  [將截斷] {$fileName} (" . $this->formatBytes($fileSize) . " > {$maxSizeMB}MB)");
                 } else {
-                    // 截斷檔案：保留最後 10MB
+                    // 截斷檔案：保留最後 10MB（使用流式處理避免內存問題）
                     $keepSize = 10 * 1024 * 1024; // 10MB
                     if ($fileSize > $keepSize) {
-                        $content = file_get_contents($file);
-                        $truncatedContent = substr($content, -$keepSize);
-                        
-                        if (file_put_contents($file, $truncatedContent) !== false) {
+                        if ($this->truncateFileFromEnd($file, $keepSize)) {
                             $cutCount++;
                             $cutSize += ($fileSize - $keepSize);
                             $cutFiles[] = $fileName;
@@ -151,6 +148,65 @@ class CleanupLogsCommand extends Command
         }
 
         return Command::SUCCESS;
+    }
+
+    /**
+     * 從檔案末尾截斷檔案（使用流式處理避免內存問題）
+     * 
+     * @param string $filePath 檔案路徑
+     * @param int $keepSize 保留的位元組數（從檔案末尾開始）
+     * @return bool 是否成功
+     */
+    private function truncateFileFromEnd(string $filePath, int $keepSize): bool
+    {
+        $handle = @fopen($filePath, 'r+b');
+        if (false === $handle) {
+            return false;
+        }
+
+        try {
+            // 獲取檔案大小
+            fseek($handle, 0, SEEK_END);
+            $fileSize = ftell($handle);
+
+            if ($fileSize <= $keepSize) {
+                fclose($handle);
+                return true; // 不需要截斷
+            }
+
+            // 計算需要保留的起始位置
+            $startPos = $fileSize - $keepSize;
+
+            // 讀取需要保留的內容（分塊讀取，避免內存問題）
+            fseek($handle, $startPos, SEEK_SET);
+            $chunkSize = 8192; // 8KB chunks
+            $content = '';
+            
+            while (!feof($handle)) {
+                $chunk = fread($handle, $chunkSize);
+                if (false === $chunk) {
+                    break;
+                }
+                $content .= $chunk;
+            }
+            fclose($handle);
+
+            // 寫回檔案
+            $writeHandle = @fopen($filePath, 'wb');
+            if (false === $writeHandle) {
+                return false;
+            }
+
+            fwrite($writeHandle, $content);
+            fclose($writeHandle);
+
+            return true;
+        } catch (\Exception $e) {
+            if (is_resource($handle)) {
+                fclose($handle);
+            }
+            return false;
+        }
     }
 
     /**
