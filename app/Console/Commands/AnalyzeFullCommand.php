@@ -282,10 +282,11 @@ class AnalyzeFullCommand extends Command
                 // ================================================================
 
                 Log::error('[AnalyzeFullCommand] 完整分析失敗', [
-                    'source_id' => $documentFile['source_id'],
-                    'file_path' => $documentFile['file_path'],
-                    'error' => $e->getMessage(),
+                    'source_id' => $sourceId ?? null,
                     'video_id' => $videoId ?? null,
+                    'xml_file' => $xmlFile ?? null,
+                    'mp4_file' => $mp4File ?? null,
+                    'error' => $e->getMessage(),
                 ]);
 
                 // ========== 如果已發送 API 請求但失敗，也需要延遲 ==========
