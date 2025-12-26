@@ -222,9 +222,9 @@ class EmergencyCleanupCommand extends Command
             $usedSpace = $totalSpace - $freeSpace;
             $usagePercent = round(($usedSpace / $totalSpace) * 100, 1);
             
-            $this->line("  總空間: " . $this->formatBytes($totalSpace));
-            $this->line("  已使用: " . $this->formatBytes($usedSpace) . " ({$usagePercent}%)");
-            $this->line("  可用空間: " . $this->formatBytes($freeSpace));
+            $this->line("  總空間: " . $this->formatBytes((int) $totalSpace));
+            $this->line("  已使用: " . $this->formatBytes((int) $usedSpace) . " ({$usagePercent}%)");
+            $this->line("  可用空間: " . $this->formatBytes((int) $freeSpace));
             
             if ($usagePercent > 90) {
                 $this->error("  ⚠️  警告：磁碟使用率超過 90%！");
