@@ -74,7 +74,9 @@ class AnalyzeFullCommand extends Command
         $this->info("📊 從資料庫獲取待處理記錄（sync_status = 'updated' 或 'synced'）");
 
         // 從資料庫獲取待處理的記錄
-        $pendingVideos = $this->videoRepository->getPendingAnalysisVideos($sourceName, $limit > 0 ? $limit : 100);
+        // 如果設定了 limit，獲取更多記錄以確保能找到足夠的可處理記錄（因為很多可能被跳過）
+        $fetchLimit = $limit > 0 ? max($limit * 3, 150) : 100; // 獲取 limit 的 3 倍或至少 150 個
+        $pendingVideos = $this->videoRepository->getPendingAnalysisVideos($sourceName, $fetchLimit);
 
         if ($pendingVideos->isEmpty()) {
             $this->warn("未找到任何待處理的記錄（sync_status = 'updated' 或 'synced'）");
@@ -84,7 +86,7 @@ class AnalyzeFullCommand extends Command
         $this->info("找到 " . $pendingVideos->count() . " 個待處理的記錄");
 
         if ($limit > 0) {
-            $this->info("將處理直到成功處理 {$limit} 個記錄為止");
+            $this->info("將處理直到成功處理 {$limit} 個記錄為止（可能會檢查更多記錄）");
         }
 
         // 處理待處理的記錄
@@ -94,7 +96,10 @@ class AnalyzeFullCommand extends Command
         $checkedCount = 0;
 
         // 使用總記錄數量建立進度條
+        // 進度條顯示"已檢查"的進度，但實際處理數量由 processedCount 控制
         $progressBar = $this->output->createProgressBar($pendingVideos->count());
+        $progressBar->setFormat(' %current%/%max% [%bar%] %percent:3s%% 已檢查: %current% | 已處理: %message%');
+        $progressBar->setMessage('0');
         $progressBar->start();
 
         foreach ($pendingVideos as $video) {
@@ -118,7 +123,52 @@ class AnalyzeFullCommand extends Command
                 
                 // 掃描該資料夾中的 XML 和 MP4 檔案
                 $disk = $this->storageService->getDisk($storageType);
+                
+                // 檢查目錄是否存在
+                if (!$disk->exists($gcsBasePath)) {
+                    $this->warn("\n⊘ 跳過（GCS 目錄不存在）: {$sourceId} (路徑: {$gcsBasePath})");
+                    Log::warning('[AnalyzeFullCommand] GCS 目錄不存在', [
+                        'source_id' => $sourceId,
+                        'gcs_path' => $gcsBasePath,
+                    ]);
+                    $skippedCount++;
+                    $progressBar->setMessage((string)$processedCount);
+                    $progressBar->advance();
+                    continue;
+                }
+                
+                // 使用 allFiles 遞歸查找，或 files 查找直接子文件
+                // 先嘗試 files（直接子文件），如果沒有找到，再嘗試 allFiles（遞歸）
                 $files = $disk->files($gcsBasePath);
+                
+                // 如果直接子目錄沒有文件，嘗試遞歸查找
+                if (empty($files)) {
+                    try {
+                        $allFiles = $disk->allFiles($gcsBasePath);
+                        $files = $allFiles;
+                    } catch (\Exception $e) {
+                        // allFiles 可能不支持，使用 files
+                        Log::debug('[AnalyzeFullCommand] allFiles 不可用，使用 files', [
+                            'source_id' => $sourceId,
+                            'error' => $e->getMessage(),
+                        ]);
+                    }
+                }
+                
+                // 記錄掃描到的文件（用於調試）
+                if (empty($files)) {
+                    Log::warning('[AnalyzeFullCommand] GCS 目錄中沒有文件', [
+                        'source_id' => $sourceId,
+                        'gcs_path' => $gcsBasePath,
+                    ]);
+                } else {
+                    Log::debug('[AnalyzeFullCommand] 掃描到的文件', [
+                        'source_id' => $sourceId,
+                        'gcs_path' => $gcsBasePath,
+                        'file_count' => count($files),
+                        'files' => array_slice($files, 0, 10), // 只記錄前 10 個
+                    ]);
+                }
                 
                 $xmlFile = null;
                 $mp4File = null;
@@ -132,10 +182,18 @@ class AnalyzeFullCommand extends Command
                             $mp4File = $file;
                         } else {
                             // 選擇較小的 MP4 檔案
-                            $currentSize = $disk->size($file);
-                            $existingSize = $disk->size($mp4File);
-                            if ($currentSize < $existingSize) {
-                                $mp4File = $file;
+                            try {
+                                $currentSize = $disk->size($file);
+                                $existingSize = $disk->size($mp4File);
+                                if ($currentSize < $existingSize) {
+                                    $mp4File = $file;
+                                }
+                            } catch (\Exception $e) {
+                                // 如果無法取得大小，保留第一個找到的
+                                Log::warning('[AnalyzeFullCommand] 無法取得 MP4 檔案大小', [
+                                    'file' => $file,
+                                    'error' => $e->getMessage(),
+                                ]);
                             }
                         }
                     }
@@ -143,15 +201,30 @@ class AnalyzeFullCommand extends Command
                 
                 // 檢查是否同時存在 XML 和 MP4
                 if (null === $xmlFile) {
-                    $this->warn("\n⊘ 跳過（找不到 XML 檔案）: {$sourceId}");
+                    $this->warn("\n⊘ 跳過（找不到 XML 檔案）: {$sourceId} (GCS 路徑: {$gcsBasePath}, 找到 " . count($files) . " 個檔案)");
+                    Log::warning('[AnalyzeFullCommand] 找不到 XML 檔案', [
+                        'source_id' => $sourceId,
+                        'gcs_path' => $gcsBasePath,
+                        'files_found' => count($files),
+                        'file_list' => array_slice($files, 0, 5),
+                    ]);
                     $skippedCount++;
+                    $progressBar->setMessage((string)$processedCount);
                     $progressBar->advance();
                     continue;
                 }
                 
                 if (null === $mp4File) {
-                    $this->warn("\n⊘ 跳過（找不到 MP4 檔案）: {$sourceId}");
+                    $this->warn("\n⊘ 跳過（找不到 MP4 檔案）: {$sourceId} (GCS 路徑: {$gcsBasePath}, 找到 " . count($files) . " 個檔案)");
+                    Log::warning('[AnalyzeFullCommand] 找不到 MP4 檔案', [
+                        'source_id' => $sourceId,
+                        'gcs_path' => $gcsBasePath,
+                        'files_found' => count($files),
+                        'file_list' => array_slice($files, 0, 5),
+                        'xml_file' => $xmlFile,
+                    ]);
                     $skippedCount++;
+                    $progressBar->setMessage((string)$processedCount);
                     $progressBar->advance();
                     continue;
                 }
@@ -162,6 +235,7 @@ class AnalyzeFullCommand extends Command
                 if (null === $fileContent) {
                     $this->warn("\n無法讀取 XML 檔案: {$xmlFile}");
                     $errorCount++;
+                    $progressBar->setMessage((string)$processedCount);
                     $progressBar->advance();
                     continue;
                 }
@@ -172,6 +246,7 @@ class AnalyzeFullCommand extends Command
                 if ('' === trim($textContent)) {
                     $this->warn("\nXML 檔案內容為空: {$xmlFile}");
                     $errorCount++;
+                    $progressBar->setMessage((string)$processedCount);
                     $progressBar->advance();
                     continue;
                 }
@@ -200,6 +275,7 @@ class AnalyzeFullCommand extends Command
                         'error' => $e->getMessage(),
                     ]);
                     $skippedCount++;
+                    $progressBar->setMessage((string)$processedCount);
                     $progressBar->advance();
                     continue;
                 }
@@ -278,6 +354,7 @@ class AnalyzeFullCommand extends Command
 
                 $this->line("\n✓ 完成完整分析: {$sourceId}");
                 $processedCount++;
+                $progressBar->setMessage((string)$processedCount);
             } catch (\Exception $e) {
                 $errorCount++;
                 
@@ -330,6 +407,7 @@ class AnalyzeFullCommand extends Command
                 $this->error("\n✗ 分析失敗: {$errorSourceId} - {$e->getMessage()}");
             }
 
+            $progressBar->setMessage((string)$processedCount);
             $progressBar->advance();
         }
 
