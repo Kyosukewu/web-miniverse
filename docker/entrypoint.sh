@@ -57,6 +57,31 @@ chmod -R 775 /var/www/html/web-miniverse/bootstrap/cache
 chown -R www-data:www-data /var/log/supervisor
 chmod 755 /var/log/supervisor
 
+# 修復 PHP-FPM 配置：確保監聽在 0.0.0.0:9000（允許其他容器連接）
+echo "修復 PHP-FPM 配置..."
+PHP_FPM_CONF="/usr/local/etc/php-fpm.d/www.conf"
+if [ -f "$PHP_FPM_CONF" ]; then
+    # 備份原始配置
+    if [ ! -f "${PHP_FPM_CONF}.bak" ]; then
+        cp "$PHP_FPM_CONF" "${PHP_FPM_CONF}.bak"
+    fi
+    
+    # 修改 listen 地址為 0.0.0.0:9000（允許容器間通信）
+    if grep -q "^listen = 127.0.0.1:9000" "$PHP_FPM_CONF"; then
+        sed -i 's/^listen = 127.0.0.1:9000/listen = 0.0.0.0:9000/' "$PHP_FPM_CONF"
+        echo "✅ 已將 PHP-FPM 監聽地址改為 0.0.0.0:9000"
+    elif ! grep -q "^listen = 0.0.0.0:9000" "$PHP_FPM_CONF"; then
+        # 如果沒有找到 0.0.0.0:9000，則添加或修改
+        sed -i 's/^listen = .*/listen = 0.0.0.0:9000/' "$PHP_FPM_CONF" || \
+        sed -i '/^\[www\]/a listen = 0.0.0.0:9000' "$PHP_FPM_CONF"
+        echo "✅ 已設置 PHP-FPM 監聽地址為 0.0.0.0:9000"
+    else
+        echo "✅ PHP-FPM 配置已正確（監聽在 0.0.0.0:9000）"
+    fi
+else
+    echo "⚠️  警告: PHP-FPM 配置文件不存在: $PHP_FPM_CONF"
+fi
+
 # 檢查 supervisord 配置
 echo "檢查 supervisord 配置..."
 if [ ! -f /etc/supervisor/supervisord.conf ]; then
