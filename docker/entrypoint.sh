@@ -59,6 +59,31 @@ chmod 755 /var/log/supervisor
 
 # 修復 PHP-FPM 配置：確保監聽在 0.0.0.0:9000（允許其他容器連接）
 echo "修復 PHP-FPM 配置..."
+
+# 修復 docker.conf（優先級較高，會覆蓋 www.conf）
+DOCKER_CONF="/usr/local/etc/php-fpm.d/docker.conf"
+if [ -f "$DOCKER_CONF" ]; then
+    # 備份原始配置
+    if [ ! -f "${DOCKER_CONF}.bak" ]; then
+        cp "$DOCKER_CONF" "${DOCKER_CONF}.bak"
+    fi
+    
+    # 修改 listen = 9000 為 listen = 0.0.0.0:9000
+    if grep -q "^listen = 9000" "$DOCKER_CONF"; then
+        sed -i 's/^listen = 9000/listen = 0.0.0.0:9000/' "$DOCKER_CONF"
+        echo "✅ 已將 docker.conf 中的監聽地址改為 0.0.0.0:9000"
+    elif grep -q "^listen = 127.0.0.1:9000" "$DOCKER_CONF"; then
+        sed -i 's/^listen = 127.0.0.1:9000/listen = 0.0.0.0:9000/' "$DOCKER_CONF"
+        echo "✅ 已將 docker.conf 中的監聽地址改為 0.0.0.0:9000"
+    elif ! grep -q "^listen = 0.0.0.0:9000" "$DOCKER_CONF"; then
+        # 如果沒有找到 0.0.0.0:9000，則添加或修改
+        sed -i 's/^listen = .*/listen = 0.0.0.0:9000/' "$DOCKER_CONF" || \
+        sed -i '/^\[www\]/a listen = 0.0.0.0:9000' "$DOCKER_CONF"
+        echo "✅ 已設置 docker.conf 中的監聽地址為 0.0.0.0:9000"
+    fi
+fi
+
+# 修復 www.conf（備用）
 PHP_FPM_CONF="/usr/local/etc/php-fpm.d/www.conf"
 if [ -f "$PHP_FPM_CONF" ]; then
     # 備份原始配置
@@ -69,17 +94,16 @@ if [ -f "$PHP_FPM_CONF" ]; then
     # 修改 listen 地址為 0.0.0.0:9000（允許容器間通信）
     if grep -q "^listen = 127.0.0.1:9000" "$PHP_FPM_CONF"; then
         sed -i 's/^listen = 127.0.0.1:9000/listen = 0.0.0.0:9000/' "$PHP_FPM_CONF"
-        echo "✅ 已將 PHP-FPM 監聽地址改為 0.0.0.0:9000"
+        echo "✅ 已將 www.conf 中的監聽地址改為 0.0.0.0:9000"
+    elif grep -q "^listen = 9000" "$PHP_FPM_CONF"; then
+        sed -i 's/^listen = 9000/listen = 0.0.0.0:9000/' "$PHP_FPM_CONF"
+        echo "✅ 已將 www.conf 中的監聽地址改為 0.0.0.0:9000"
     elif ! grep -q "^listen = 0.0.0.0:9000" "$PHP_FPM_CONF"; then
         # 如果沒有找到 0.0.0.0:9000，則添加或修改
         sed -i 's/^listen = .*/listen = 0.0.0.0:9000/' "$PHP_FPM_CONF" || \
         sed -i '/^\[www\]/a listen = 0.0.0.0:9000' "$PHP_FPM_CONF"
-        echo "✅ 已設置 PHP-FPM 監聽地址為 0.0.0.0:9000"
-    else
-        echo "✅ PHP-FPM 配置已正確（監聽在 0.0.0.0:9000）"
+        echo "✅ 已設置 www.conf 中的監聽地址為 0.0.0.0:9000"
     fi
-else
-    echo "⚠️  警告: PHP-FPM 配置文件不存在: $PHP_FPM_CONF"
 fi
 
 # 檢查 supervisord 配置

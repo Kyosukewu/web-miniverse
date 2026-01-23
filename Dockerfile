@@ -8,21 +8,21 @@ WORKDIR /var/www/html/web-miniverse
 # 注意：分步安裝以提高可靠性，並在最後清理以節省空間
 RUN apt-get update && \
     apt-get install -y \
-        git \
-        curl \
-        libpng-dev \
-        libjpeg62-turbo-dev \
-        libfreetype6-dev \
-        libonig-dev \
-        libxml2-dev \
-        libzip-dev \
-        libicu-dev \
-        zip \
-        unzip \
-        supervisor \
-        cron \
-        python3 \
-        python3-pip \
+    git \
+    curl \
+    libpng-dev \
+    libjpeg62-turbo-dev \
+    libfreetype6-dev \
+    libonig-dev \
+    libxml2-dev \
+    libzip-dev \
+    libicu-dev \
+    zip \
+    unzip \
+    supervisor \
+    cron \
+    python3 \
+    python3-pip \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean \
     && apt-get autoremove -y
