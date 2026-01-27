@@ -93,16 +93,16 @@ if ($schedulerEnabled) {
         ->withoutOverlapping()
         ->runInBackground();
 
-    // 清理臨時檔案：每小時執行，刪除 2 小時前的臨時檔案
-    // 注意：保留時間設為 2 小時，避免與 analyze:full 執行時間衝突
-    // analyze:full 每小時執行一次，每次處理約 10 個檔案，每個檔案可能需要幾分鐘
-    // 設為 2 小時可確保即使 analyze:full 執行時間較長，也不會刪除正在使用的檔案
+    // 清理臨時檔案：每小時執行，刪除 1 小時前的臨時檔案
+    // 優化：從 2 小時縮短為 1 小時，更積極清理以節省空間
+    // analyze:full 單個影片分析通常在 5-10 分鐘內完成，1 小時已足夠
+    // 額外保護：5 分鐘內修改的檔案會被跳過，防止刪除正在使用的檔案
     Schedule::call(function () {
         $tempDir = storage_path('app/temp');
         if (is_dir($tempDir)) {
             $deletedCount = 0;
             $deletedSize = 0;
-            $retentionHours = 2; // 保留 2 小時
+            $retentionHours = 1; // 保留 1 小時（優化：更積極清理）
             $retentionSeconds = $retentionHours * 3600;
             
             $files = glob($tempDir . '/*');
@@ -153,19 +153,19 @@ if ($schedulerEnabled) {
         ->onOneServer()
         ->runInBackground();
     
-    // 緊急清理檢查（每 6 小時執行一次，當磁碟使用率超過 85% 時自動清理）
-    // 這是一個預防性措施，在空間不足前就開始清理
+    // 緊急清理檢查（每 6 小時執行一次，當磁碟使用率超過 80% 時自動清理）
+    // 優化：從 85% 降為 80%，更早觸發清理，預留更多緩衝空間
     Schedule::call(function () {
         $basePath = storage_path();
         $freeSpace = disk_free_space($basePath);
         $totalSpace = disk_total_space($basePath);
-        
+
         if ($freeSpace !== false && $totalSpace !== false) {
             $usedSpace = $totalSpace - $freeSpace;
             $usagePercent = ($usedSpace / $totalSpace) * 100;
-            
-            // 如果使用率超過 85%，執行緊急清理
-            if ($usagePercent > 85) {
+
+            // 如果使用率超過 80%，執行緊急清理（優化：從 85% 降為 80%）
+            if ($usagePercent > 80) {
                 Log::warning('[Scheduler] 磁碟使用率過高，執行緊急清理', [
                     'usage_percent' => round($usagePercent, 1),
                     'free_space_mb' => round($freeSpace / 1024 / 1024, 2),

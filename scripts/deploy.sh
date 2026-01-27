@@ -172,6 +172,15 @@ docker_build() {
 }
 
 docker_stop() {
+    # 優化：停止容器前先清理臨時檔案，釋放空間
+    print_step "清理臨時檔案"
+    if docker compose ps app --quiet 2>/dev/null | grep -q .; then
+        docker compose exec -T app php artisan cleanup:emergency --force --keep-hours=0 2>/dev/null || \
+            print_warning "清理臨時檔案失敗（容器可能已停止）"
+    else
+        print_info "容器未運行，跳過清理"
+    fi
+
     print_step "停止現有容器"
     docker compose down
     print_success "容器已停止"

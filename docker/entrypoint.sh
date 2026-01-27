@@ -106,6 +106,21 @@ if [ -f "$PHP_FPM_CONF" ]; then
     fi
 fi
 
+# 清理啟動前的舊臨時檔案（優化：防止容器重啟後保留舊檔案）
+echo "清理舊臨時檔案..."
+TEMP_DIR="/var/www/html/web-miniverse/storage/app/temp"
+if [ -d "$TEMP_DIR" ]; then
+    # 刪除 60 分鐘前的檔案（與排程清理保持一致）
+    DELETED_COUNT=$(find "$TEMP_DIR" -type f -mmin +60 -delete -print 2>/dev/null | wc -l)
+    if [ "$DELETED_COUNT" -gt 0 ]; then
+        echo "✅ 已清理 $DELETED_COUNT 個舊臨時檔案"
+    else
+        echo "ℹ️  沒有需要清理的舊檔案"
+    fi
+else
+    echo "ℹ️  臨時目錄不存在，跳過清理"
+fi
+
 # 檢查 supervisord 配置
 echo "檢查 supervisord 配置..."
 if [ ! -f /etc/supervisor/supervisord.conf ]; then
