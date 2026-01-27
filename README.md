@@ -252,7 +252,8 @@ git commit -m "perf: 優化影片分析性能"
 
 | 腳本 | 用途 | 使用方法 |
 |------|------|----------|
-| **deploy.sh** | 主部署腳本（生產/開發） | `./deploy.sh --env=production` |
+| **scripts/deploy.sh** | 統一部署腳本（支持智能偵測重建） | `./scripts/deploy.sh [--quick\|--rebuild\|--pull]` |
+| **deploy.sh** | 向後兼容包裝腳本 | `./deploy.sh --env=production` |
 | **update-and-deploy.sh** | 更新代碼並部署 | `./scripts/deployment/update-and-deploy.sh` |
 | **fix-permissions.sh** | 修復 Git 權限問題 | `./scripts/deployment/fix-permissions.sh` |
 
@@ -260,7 +261,7 @@ git commit -m "perf: 優化影片分析性能"
 
 | 腳本 | 用途 | 使用方法 |
 |------|------|----------|
-| **disk-cleanup.sh** | 清理磁盤空間 | `./scripts/maintenance/disk-cleanup.sh` |
+| **scripts/cleanup.sh** | 統一清理腳本（支持多種模式） | `./scripts/cleanup.sh [quick\|full\|emergency\|auto]` |
 
 ### 除錯腳本
 
@@ -269,6 +270,7 @@ git commit -m "perf: 優化影片分析性能"
 | **check-scheduler.sh** | 檢查排程狀態 | `./scripts/debugging/check-scheduler.sh` |
 | **check-supervisor.sh** | 檢查 Supervisor 狀態 | `./scripts/debugging/check-supervisor.sh` |
 | **check-gcs-proxy.sh** | 檢查 GCS 代理錯誤 | `./scripts/debugging/check-gcs-proxy.sh` |
+| **diagnose-space.sh** | 診斷磁碟空間問題 | `./scripts/docker/diagnose-space.sh` |
 
 ---
 
