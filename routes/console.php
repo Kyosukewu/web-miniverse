@@ -178,4 +178,60 @@ if ($schedulerEnabled) {
             }
         }
     })->everySixHours()->name('emergency-cleanup-check')->onOneServer();
+
+    // 容器大小監控（每 6 小時執行一次，防禦層 3 - 方案 D）
+    // 當容器可寫層超過 5GB 時記錄警告，提供預警以便手動介入
+    Schedule::call(function () {
+        try {
+            // 執行 docker ps -s 獲取容器大小資訊
+            $output = shell_exec('docker ps -s --filter "name=web-miniverse-app" --format "{{.Size}}" 2>&1');
+
+            if ($output === null || empty(trim($output))) {
+                Log::warning('[Scheduler] 無法獲取容器大小資訊', [
+                    'reason' => 'docker ps 命令執行失敗或容器不存在',
+                ]);
+                return;
+            }
+
+            // 解析容器大小 (格式: "232MB (virtual 1.23GB)" 或 "10.6GB (virtual 20GB)")
+            // 我們只關注第一個數字（容器可寫層大小）
+            $output = trim($output);
+            if (preg_match('/^([\d.]+)(KB|MB|GB)/', $output, $matches)) {
+                $size = (float) $matches[1];
+                $unit = $matches[2];
+
+                // 轉換為 GB
+                $sizeInGB = match ($unit) {
+                    'GB' => $size,
+                    'MB' => $size / 1024,
+                    'KB' => $size / (1024 * 1024),
+                    default => 0,
+                };
+
+                // 記錄容器大小
+                Log::info('[Scheduler] 容器大小監控', [
+                    'container_size' => $output,
+                    'size_gb' => round($sizeInGB, 2),
+                ]);
+
+                // 如果容器大小超過 5GB，記錄警告
+                if ($sizeInGB > 5) {
+                    Log::warning('[Scheduler] 容器大小超過閾值！', [
+                        'container_size' => $output,
+                        'size_gb' => round($sizeInGB, 2),
+                        'threshold_gb' => 5,
+                        'recommendation' => '建議執行容器重啟以釋放空間：docker compose restart app',
+                    ]);
+                }
+            } else {
+                Log::warning('[Scheduler] 無法解析容器大小', [
+                    'output' => $output,
+                ]);
+            }
+        } catch (\Exception $e) {
+            Log::error('[Scheduler] 容器大小監控失敗', [
+                'error' => $e->getMessage(),
+            ]);
+        }
+    })->everySixHours()->name('container-size-monitor')->onOneServer();
 }

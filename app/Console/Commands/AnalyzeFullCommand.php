@@ -74,6 +74,12 @@ class AnalyzeFullCommand extends Command
         $this->info("開始處理來源: {$sourceName}, 儲存空間: {$storageType}");
         $this->info("模式：完整分析（文本 + 影片一次性發送）");
 
+        // ========== 防禦層 2：混合式智能健康檢查 ==========
+        if (!$this->performSmartHealthCheck()) {
+            return Command::FAILURE;
+        }
+        // ================================================================
+
         // 處理待處理的記錄
         $processedCount = 0;
         $skippedCount = 0;
@@ -1080,6 +1086,155 @@ class AnalyzeFullCommand extends Command
     }
 
     /**
+     * 混合式智能健康檢查（防禦層 2）
+     *
+     * 策略：
+     * 1. 先檢查日誌（不消耗配額）
+     * 2. 如果日誌正常 → 直接繼續
+     * 3. 如果日誌異常 → 進行輕量測試（消耗 1 個配額）
+     * 4. 支持自動恢復（15 分鐘後重試）
+     *
+     * @return bool true 表示可以繼續處理，false 表示應停止
+     */
+    private function performSmartHealthCheck(): bool
+    {
+        $this->line("🔍 執行 API 健康檢查...");
+
+        // 步驟 1：檢查最近 15 分鐘的日誌
+        $logCheck = $this->checkRecentApiErrorsInLogs();
+
+        if ($logCheck['healthy']) {
+            $this->info("✅ 日誌檢查正常，未發現持續性錯誤");
+            return true;
+        }
+
+        // 步驟 2：日誌異常，進行輕量測試
+        $this->warn("⚠️  日誌檢查異常：最近 15 分鐘有 {$logCheck['error_count']} 次 '{$logCheck['error_type']}' 錯誤");
+        $this->line("🧪 執行輕量 API 測試確認狀態（僅消耗 1 個配額）...");
+
+        $testResult = $this->performLightweightApiTest();
+
+        if ($testResult['success']) {
+            $this->info("✅ API 測試成功！API 已恢復正常，繼續處理");
+            return true;
+        }
+
+        // 步驟 3：確認 API 不可用，建議停止
+        $this->error("❌ API 測試失敗：{$testResult['error']}");
+        $this->warn("為避免浪費資源和累積未清理的臨時檔案，建議停止處理");
+        $this->warn("系統將在 15 分鐘後自動重試（排程執行）");
+        $this->warn("或您可以立即修復 API 問題後手動執行此命令");
+
+        return false;
+    }
+
+    /**
+     * 檢查最近日誌中的 API 錯誤（不消耗配額）
+     *
+     * @return array ['healthy' => bool, 'error_type' => string|null, 'error_count' => int]
+     */
+    private function checkRecentApiErrorsInLogs(): array
+    {
+        try {
+            $logFile = storage_path('logs/laravel.log');
+
+            if (!file_exists($logFile)) {
+                return ['healthy' => true, 'error_type' => null, 'error_count' => 0];
+            }
+
+            // 讀取最後 500 行日誌
+            $command = "tail -n 500 " . escapeshellarg($logFile) . " 2>/dev/null";
+            $output = shell_exec($command);
+
+            if (!$output) {
+                return ['healthy' => true, 'error_type' => null, 'error_count' => 0];
+            }
+
+            // 15 分鐘時間窗口
+            $cutoffTime = time() - (15 * 60);
+            $lines = explode("\n", $output);
+
+            // 統計錯誤
+            $errorTypes = ['403' => 0, '429' => 0, 'IP address restriction' => 0];
+
+            foreach ($lines as $line) {
+                // 解析時間戳 [2026-01-28 01:22:30]
+                if (preg_match('/\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]/', $line, $matches)) {
+                    $logTime = strtotime($matches[1]);
+
+                    if ($logTime >= $cutoffTime &&
+                        stripos($line, 'AnalyzeFullCommand') !== false &&
+                        stripos($line, 'Gemini') !== false) {
+
+                        foreach ($errorTypes as $errorType => $count) {
+                            if (stripos($line, $errorType) !== false) {
+                                $errorTypes[$errorType]++;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 如果有超過 3 次相同錯誤，認為不健康
+            foreach ($errorTypes as $errorType => $count) {
+                if ($count >= 3) {
+                    return [
+                        'healthy' => false,
+                        'error_type' => $errorType,
+                        'error_count' => $count,
+                    ];
+                }
+            }
+
+            return ['healthy' => true, 'error_type' => null, 'error_count' => 0];
+
+        } catch (\Exception $e) {
+            Log::warning('[AnalyzeFullCommand] 日誌檢查失敗', ['error' => $e->getMessage()]);
+            return ['healthy' => true, 'error_type' => null, 'error_count' => 0];
+        }
+    }
+
+    /**
+     * 執行輕量 API 測試（消耗 1 個配額）
+     *
+     * 發送最簡單的請求，限制 API 只回應 "y"
+     *
+     * @return array ['success' => bool, 'error' => string|null]
+     */
+    private function performLightweightApiTest(): array
+    {
+        try {
+            // 使用最簡單的文本測試，限制回應長度
+            $testText = "API health check";
+            $testPrompt = "Respond with only: y";
+
+            // 使用 AnalyzeService 進行測試
+            $result = $this->analyzeService->executeTextAnalysis(
+                null, // videoId 為 null（僅測試）
+                $testText,
+                $testPrompt
+            );
+
+            // 檢查是否成功
+            if ($result !== null) {
+                return ['success' => true, 'error' => null];
+            }
+
+            return ['success' => false, 'error' => 'API 回應為空'];
+
+        } catch (\Exception $e) {
+            $errorMessage = $e->getMessage();
+
+            // 記錄測試失敗
+            Log::warning('[AnalyzeFullCommand] API 輕量測試失敗', [
+                'error' => $errorMessage,
+            ]);
+
+            return ['success' => false, 'error' => $errorMessage];
+        }
+    }
+
+    /**
      * 處理視頻分析錯誤。
      *
      * @param \Exception $e
@@ -1128,6 +1283,27 @@ class AnalyzeFullCommand extends Command
             'video_id' => $videoId,
             'error' => $e->getMessage(),
         ]);
+
+        // ========== 更新狀態為分析失敗（防禦層 1：避免無限重試循環）==========
+        if (isset($videoId)) {
+            try {
+                $this->videoRepository->updateAnalysisStatus(
+                    $videoId,
+                    AnalysisStatus::VIDEO_ANALYSIS_FAILED,
+                    new \DateTime()
+                );
+                Log::info('[AnalyzeFullCommand] 已更新狀態為 VIDEO_ANALYSIS_FAILED', [
+                    'video_id' => $videoId,
+                    'source_id' => $sourceId,
+                ]);
+            } catch (\Exception $updateException) {
+                Log::error('[AnalyzeFullCommand] 更新狀態失敗', [
+                    'video_id' => $videoId,
+                    'error' => $updateException->getMessage(),
+                ]);
+            }
+        }
+        // ================================================================
 
         // ========== 如果已發送 API 請求但失敗，也需要延遲 ==========
         if (isset($videoId)) {
