@@ -105,8 +105,15 @@ docker compose exec app php artisan analyze:video --source=CNN --storage=gcs --l
 docker compose exec app php artisan video:clear --all
 docker compose exec app php artisan video:clear --id=1,2,3
 
-# 重置分析狀態
+# 重置分析狀態（指定 ID）
 docker compose exec app php artisan video:reset-status --id=1,2,3
+
+# 批量重試失敗的影片（用於 API 恢復後）
+docker compose exec app php artisan video:retry-failed --days=7 --dry-run  # 預覽模式
+docker compose exec app php artisan video:retry-failed --days=7             # 重試最近 7 天失敗的影片
+docker compose exec app php artisan video:retry-failed --days=7 --source=CNN  # 只重試 CNN 來源
+docker compose exec app php artisan video:retry-failed --days=7 --limit=100   # 限制重試數量
+docker compose exec app php artisan video:retry-failed --days=7 --force       # 不需要確認
 
 # 恢復卡住的分析任務
 docker compose exec app php artisan analysis:recover
