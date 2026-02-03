@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Exceptions\GeminiApiException;
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\GuzzleException;
 use Illuminate\Support\Facades\Log;
@@ -117,7 +118,7 @@ class GeminiClient
             Log::error('[Gemini Client] AnalyzeText - API 請求失敗', [
                 'error' => $sanitizedError,
             ]);
-            throw new \Exception('Gemini API 文本分析失敗: ' . $sanitizedError, 0, $e);
+            throw GeminiApiException::fromGuzzleException($e, 'Gemini API 文本分析失敗: ' . $sanitizedError);
         }
     }
 
@@ -148,13 +149,12 @@ class GeminiClient
 
         // Check if file exceeds Gemini API limit (300MB)
         if ($fileSizeMB > $maxFileSizeMB) {
-            $errorMessage = "影片檔案過大 ({$fileSizeMB}MB)，超過 Gemini API 限制 ({$maxFileSizeMB}MB)";
             Log::error('[Gemini Client] 影片檔案超過 API 限制', [
                 'file_size_mb' => $fileSizeMB,
                 'max_size_mb' => $maxFileSizeMB,
                 'video_path' => $videoPath,
             ]);
-            throw new \InvalidArgumentException($errorMessage);
+            throw GeminiApiException::fileTooLarge($fileSizeMB, $maxFileSizeMB);
         }
 
         // Log warning if file is large but still within limit
@@ -168,7 +168,7 @@ class GeminiClient
 
         $videoData = file_get_contents($videoPath);
         if (false === $videoData) {
-            throw new \Exception('讀取影片檔案失敗: ' . $videoPath);
+            throw GeminiApiException::fileNotAccessible($videoPath, '無法讀取檔案內容');
         }
 
         $videoMimeType = $this->getVideoMimeType($videoPath);
@@ -259,7 +259,7 @@ class GeminiClient
             Log::error('[Gemini Client] AnalyzeVideo - API 請求失敗', [
                 'error' => $sanitizedError,
             ]);
-            throw new \Exception('Gemini API 影片分析失敗: ' . $sanitizedError, 0, $e);
+            throw GeminiApiException::fromGuzzleException($e, 'Gemini API 影片分析失敗: ' . $sanitizedError);
         }
     }
 
@@ -445,7 +445,7 @@ class GeminiClient
             Log::error('[Gemini Client] AnalyzeYouTubeUrl - API 請求失敗', [
                 'error' => $e->getMessage(),
             ]);
-            throw new \Exception('Gemini API YouTube URL 分析失敗: ' . $e->getMessage(), 0, $e);
+            throw GeminiApiException::fromGuzzleException($e, 'Gemini API YouTube URL 分析失敗: ' . $e->getMessage());
         }
     }
 

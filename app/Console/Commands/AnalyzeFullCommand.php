@@ -6,6 +6,7 @@ namespace App\Console\Commands;
 
 use App\Enums\AnalysisStatus;
 use App\Enums\SyncStatus;
+use App\Exceptions\GeminiApiException;
 use App\Repositories\VideoRepository;
 use App\Services\AnalyzeService;
 use App\Services\SourceVersionChecker;

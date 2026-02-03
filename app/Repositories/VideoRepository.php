@@ -391,7 +391,7 @@ class VideoRepository
             $query->whereNotIn('id', $excludeIds);
         }
         
-        return $query->orderBy('published_at', 'desc')
+        return $query->orderBy('id', 'desc')
             ->limit($limit)
             ->get();
     }
